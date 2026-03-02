@@ -14,11 +14,11 @@ OSSReleaseFeed is a web tool that lets users generate RSS/Atom feed URLs for Git
 
 ## Three documents to read before starting
 
-| Document | Purpose |
-|----------|---------|
-| `ossreleasefeed-prd.md` | What is being built and why. Requirements, user flows, acceptance criteria, success metrics. |
-| `ossreleasefeed-technical-spec.md` (v1.3) | How it is built. Architecture, tooling decisions, data model, API design, feed generation, security, CI/CD, deployment. All open questions are resolved. |
-| `ossreleasefeed-implementation-plan.md` (v1.3) | Sequenced build plan. Eight phases with tasks, gates, and definition of done. Start here for task order. |
+| Document                                       | Purpose                                                                                                                                                  |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ossreleasefeed-prd.md`                        | What is being built and why. Requirements, user flows, acceptance criteria, success metrics.                                                             |
+| `ossreleasefeed-technical-spec.md` (v1.3)      | How it is built. Architecture, tooling decisions, data model, API design, feed generation, security, CI/CD, deployment. All open questions are resolved. |
+| `ossreleasefeed-implementation-plan.md` (v1.3) | Sequenced build plan. Eight phases with tasks, gates, and definition of done. Start here for task order.                                                 |
 
 ---
 
@@ -50,16 +50,16 @@ A React 19 SPA (Vite, standard CSS, no third-party component library) is hosted 
 
 ## Phase sequence at a glance
 
-| Phase | Goal |
-|-------|------|
-| 1 | Repo, CI, linting, test infrastructure, frontend and Worker scaffolds. No product code. |
-| 2 | Core Worker: spike validates `@octokit/rest` + `effect` bundle (2.1), then schemas, GitHub client (Effect service layer), feed generation, diffing, all API routes, security headers. |
-| 3 | Core frontend: full topic and starred repo flows, accessibility, responsive layout. |
-| 4 | P1 features: validation review, Sentry + Umami activation. |
-| 5 | Beta: production deploy, smoke testing, metrics baseline. |
-| 6 | Public launch: blog post, announcement. |
-| 7 | JSON Feed output (`feed.json1()` — one method call, already supported by the `feed` package). |
-| 8 | P2: QR code, feed preview. |
+| Phase | Goal                                                                                                                                                                                  |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Repo, CI, linting, test infrastructure, frontend and Worker scaffolds. No product code.                                                                                               |
+| 2     | Core Worker: spike validates `@octokit/rest` + `effect` bundle (2.1), then schemas, GitHub client (Effect service layer), feed generation, diffing, all API routes, security headers. |
+| 3     | Core frontend: full topic and starred repo flows, accessibility, responsive layout.                                                                                                   |
+| 4     | P1 features: validation review, Sentry + Umami activation.                                                                                                                            |
+| 5     | Beta: production deploy, smoke testing, metrics baseline.                                                                                                                             |
+| 6     | Public launch: blog post, announcement.                                                                                                                                               |
+| 7     | JSON Feed output (`feed.json1()` — one method call, already supported by the `feed` package).                                                                                         |
+| 8     | P2: QR code, feed preview.                                                                                                                                                            |
 
 Do not begin a phase until the previous phase's gate criteria are met.
 

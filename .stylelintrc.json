@@ -1,0 +1,14 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "plugins": ["stylelint-plugin-logical-css", "stylelint-selector-bem-pattern", "stylelint-order"],
+  "rules": {
+    "media-feature-range-notation": "context",
+    "order/properties-alphabetical-order": true,
+    "plugin/use-logical-properties-and-values": true,
+    "plugin/use-logical-units": true,
+    "plugin/selector-bem-pattern": {
+      "preset": "bem"
+    },
+    "selector-class-pattern": "^(?!js-)[a-z][a-z0-9-]*(__[a-z][a-z0-9-]*)?(--[a-z][a-z0-9-]*)?$"
+  }
+}

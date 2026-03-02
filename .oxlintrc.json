@@ -1,0 +1,7 @@
+{
+  "$schema": "https://oxc.rs/schema.json",
+  "plugins": ["typescript", "react", "jsx-a11y", "import"],
+  "rules": {
+    "no-console": "warn"
+  }
+}
