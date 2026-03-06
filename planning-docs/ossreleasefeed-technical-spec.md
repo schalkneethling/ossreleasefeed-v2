@@ -75,6 +75,7 @@ TypeScript throughout — frontend, Worker, and all test code. A single `tsconfi
   **Do not use the full `octokit` package.** It bundles `@octokit/plugin-throttling`, which calls `setTimeout` during module-level instantiation. The Cloudflare Workers runtime requires all async I/O (including timers) to occur within a `fetch` event handler scope — timers fired at the top level of a module are rejected with `Uncaught Error: Some functionality, such as asynchronous I/O, timeouts, and generating random values, can only be performed while handling a request.`
 
   **Instantiate inside the `fetch` handler, never at module scope:**
+
   ```ts
   // ✅ Correct — instantiate inside the handler
   export default {
@@ -85,23 +86,24 @@ TypeScript throughout — frontend, Worker, and all test code. A single `tsconfi
   };
 
   // ❌ Risky — module-scope instantiation triggers timers from throttling plugin
-  const octokit = new Octokit({ auth: '...' });
+  const octokit = new Octokit({ auth: "..." });
   ```
 
   Rate-limit handling can be implemented directly from the `x-ratelimit-remaining` and `retry-after` response headers GitHub returns, without needing `@octokit/plugin-throttling`. Confirm clean bundle and deploy via `wrangler deploy --dry-run` during the Phase 0 spike.
 
 ### Testing
 
-| Layer | Tool | Scope |
-|-------|------|-------|
-| Unit | Vitest | Pure functions: base64url encoding/decoding, FeedConfig validation, feed diffing, topic slug sanitisation |
-| Integration | Vitest | Feed generation pipeline with mocked GitHub API responses; Effect Schema assertions on mapped data |
-| End-to-end | Playwright | Full user flows: topic feed creation, starred repo feed creation, validation states, error states |
-| Accessibility | `@axe-core/playwright` | Run against Cloudflare Pages preview deployment on every pull request |
+| Layer         | Tool                   | Scope                                                                                                     |
+| ------------- | ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| Unit          | Vitest                 | Pure functions: base64url encoding/decoding, FeedConfig validation, feed diffing, topic slug sanitisation |
+| Integration   | Vitest                 | Feed generation pipeline with mocked GitHub API responses; Effect Schema assertions on mapped data        |
+| End-to-end    | Playwright             | Full user flows: topic feed creation, starred repo feed creation, validation states, error states         |
+| Accessibility | `@axe-core/playwright` | Run against Cloudflare Pages preview deployment on every pull request                                     |
 
 **Validation strategy:** Use Effect's `Schema` module (from the `effect` package) for all data validation — `FeedConfig` decoding, GitHub API response parsing, and `FeedEntry` mapping. Effect Schema is the right choice for this project: it is fully tree-shakeable, implements the Standard Schema v1 spec (enabling direct integration with Hono's `@hono/standard-validator`), and is already present in the dependency tree for error handling and concurrency — there is no separate dependency to add.
 
 Validate at every data boundary:
+
 - **Incoming `FeedConfig`:** decode the base64url token and parse through the `FeedConfig` schema using `Schema.decodeUnknownEither`; invalid configs return HTTP 400 immediately
 - **GitHub API responses:** parse each response through a typed schema before mapping to `FeedEntry`; a malformed or unexpected response shape surfaces as a typed `ParseError` caught in the Effect pipeline rather than silently producing bad feed output
 - **`FeedEntry` before serialisation:** validate the mapped entry against the `FeedEntry` schema before passing to the `feed` library; this ensures `id` is a non-empty URL, `date` is a valid `Date`, and required fields are present
@@ -113,13 +115,13 @@ This replaces the need for a dedicated Atom XML validator in CI. Structural corr
 MSW setup in Vitest (`tests/integration/setup.ts`):
 
 ```ts
-import { beforeAll, afterEach, afterAll } from 'vitest';
-import { setupServer } from 'msw/node';
-import { handlers } from './handlers';
+import { beforeAll, afterEach, afterAll } from "vitest";
+import { setupServer } from "msw/node";
+import { handlers } from "./handlers";
 
 export const server = setupServer(...handlers);
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 ```
@@ -134,11 +136,11 @@ Use Vitest's built-in `vi.fn()` for unit tests of pure functions where no networ
 
 All tooling configured at project initialisation and enforced in CI. Linting failures block merges.
 
-| Tool | Purpose | Config file |
-|------|---------|-------------|
-| Oxlint | ESLint-compatible linter (50–100x faster than ESLint) | `.oxlintrc.json` |
-| Stylelint | CSS linting | `.stylelintrc.json` |
-| Oxfmt | Prettier-compatible formatter (beta, 30x faster than Prettier) | `.oxfmt.toml` |
+| Tool      | Purpose                                                        | Config file         |
+| --------- | -------------------------------------------------------------- | ------------------- |
+| Oxlint    | ESLint-compatible linter (50–100x faster than ESLint)          | `.oxlintrc.json`    |
+| Stylelint | CSS linting                                                    | `.stylelintrc.json` |
+| Oxfmt     | Prettier-compatible formatter (beta, 30x faster than Prettier) | `.oxfmt.toml`       |
 
 Both Oxlint and Oxfmt are part of the [Oxc project](https://oxc.rs) by VoidZero — a collection of high-performance JavaScript tooling written in Rust. Oxlint is production-ready with 650+ rules and true type-aware linting powered by `tsgo`. Oxfmt is currently in beta.
 
@@ -149,11 +151,7 @@ Oxlint rule sets to include: TypeScript rules, React rules, and `jsx-a11y` equiv
 ```json
 {
   "extends": ["stylelint-config-standard"],
-  "plugins": [
-    "stylelint-plugin-logical-css",
-    "stylelint-selector-bem-pattern",
-    "stylelint-order"
-  ],
+  "plugins": ["stylelint-plugin-logical-css", "stylelint-selector-bem-pattern", "stylelint-order"],
   "rules": {
     "media-feature-range-notation": "context",
     "order/properties-alphabetical-order": true,
@@ -168,6 +166,7 @@ Oxlint rule sets to include: TypeScript rules, React rules, and `jsx-a11y` equiv
 ```
 
 Notes on the Stylelint configuration:
+
 - `stylelint-config-standard` provides a sensible baseline covering modern CSS best practices
 - `stylelint-plugin-logical-css` ([github.com/yuschick/stylelint-plugin-logical-css](https://github.com/yuschick/stylelint-plugin-logical-css)) enforces logical properties and values (e.g. `margin-inline-start` over `margin-left`) and logical units — essential for a project that takes internationalisation and writing direction seriously
 - `media-feature-range-notation: "context"` enforces the modern range syntax for media queries (e.g. `@media (width >= 768px)`) over the legacy `min-width`/`max-width` form — reference: [MDN — Media feature range notation](https://stylelint.io/user-guide/rules/media-feature-range-notation/)
@@ -219,43 +218,44 @@ All types are inferred from Effect schemas using `Schema.Schema.Type<typeof Sche
 Schemas live in `worker/src/lib/schemas.ts` and are shared across the Worker (validation) and frontend (encoding).
 
 ```ts
-import { Schema } from 'effect';
+import { Schema } from "effect";
 
 // --- Primitive schemas (reused across multiple schemas) ---
 
 const GithubUsernameSchema = Schema.String.pipe(
-  Schema.pattern(
-    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/,
-    { message: () => 'Invalid GitHub username' }
-  )
+  Schema.pattern(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/, {
+    message: () => "Invalid GitHub username",
+  }),
 );
 
 const TopicSlugSchema = Schema.String.pipe(
-  Schema.pattern(/^[a-z0-9][a-z0-9-]*$/, { message: () => 'Invalid GitHub topic slug' }),
-  Schema.maxLength(35)
+  Schema.pattern(/^[a-z0-9][a-z0-9-]*$/, { message: () => "Invalid GitHub topic slug" }),
+  Schema.maxLength(35),
 );
 
 // --- FeedConfig schema ---
 
 const FeedConfigSchema = Schema.Union(
   Schema.Struct({
-    source: Schema.Literal('topics'),
+    source: Schema.Literal("topics"),
     topics: Schema.Array(TopicSlugSchema).pipe(Schema.minItems(1), Schema.maxItems(5)),
-    topicOperator: Schema.optionalWith(Schema.Literal('and', 'or'), { default: () => 'or' as const }),
-    activityType: Schema.Literal('releases', 'all'),
+    topicOperator: Schema.optionalWith(Schema.Literal("and", "or"), {
+      default: () => "or" as const,
+    }),
+    activityType: Schema.Literal("releases", "all"),
     ttl: Schema.Int.pipe(Schema.greaterThanOrEqualTo(3600)),
-    format: Schema.optionalWith(Schema.Literal('atom', 'json'), { default: () => 'atom' as const }),
+    format: Schema.optionalWith(Schema.Literal("atom", "json"), { default: () => "atom" as const }),
   }),
   Schema.Struct({
-    source: Schema.Literal('starred'),
+    source: Schema.Literal("starred"),
     username: GithubUsernameSchema,
     repos: Schema.optionalWith(
       Schema.NullOr(Schema.Array(Schema.String).pipe(Schema.maxItems(25))),
-      { default: () => null }
+      { default: () => null },
     ),
-    activityType: Schema.Literal('releases', 'all'),
+    activityType: Schema.Literal("releases", "all"),
     ttl: Schema.Int.pipe(Schema.greaterThanOrEqualTo(3600)),
-    format: Schema.optionalWith(Schema.Literal('atom', 'json'), { default: () => 'atom' as const }),
+    format: Schema.optionalWith(Schema.Literal("atom", "json"), { default: () => "atom" as const }),
   }),
 );
 
@@ -294,28 +294,28 @@ All URL path parameters and query strings are validated with Effect Schema at th
 Effect Schema implements Standard Schema v1, so validation at the route level uses Hono's `@hono/standard-validator` middleware — a single adapter that works with any Standard Schema-compatible library:
 
 ```ts
-import { sValidator } from '@hono/standard-validator';
-import { Schema, Either } from 'effect';
-import { GithubUsernameSchema, TopicSlugSchema } from './lib/schemas';
+import { sValidator } from "@hono/standard-validator";
+import { Schema, Either } from "effect";
+import { GithubUsernameSchema, TopicSlugSchema } from "./lib/schemas";
 
 // GET /api/users/validate/:username
 app.get(
-  '/api/users/validate/:username',
-  sValidator('param', Schema.Struct({ username: GithubUsernameSchema })),
+  "/api/users/validate/:username",
+  sValidator("param", Schema.Struct({ username: GithubUsernameSchema })),
   (ctx) => {
-    const { username } = ctx.req.valid('param'); // fully typed, guaranteed valid
+    const { username } = ctx.req.valid("param"); // fully typed, guaranteed valid
     // ...
-  }
+  },
 );
 
 // GET /api/topics/validate?q={query}
 app.get(
-  '/api/topics/validate',
-  sValidator('query', Schema.Struct({ q: TopicSlugSchema })),
+  "/api/topics/validate",
+  sValidator("query", Schema.Struct({ q: TopicSlugSchema })),
   (ctx) => {
-    const { q: slug } = ctx.req.valid('query'); // fully typed, guaranteed valid
+    const { q: slug } = ctx.req.valid("query"); // fully typed, guaranteed valid
     // ...
-  }
+  },
 );
 ```
 
@@ -325,7 +325,7 @@ For cases where `sValidator` is not used (e.g. decoding `FeedConfig` from the UR
 const result = Schema.decodeUnknownEither(FeedConfigSchema)(decoded);
 
 if (Either.isLeft(result)) {
-  return ctx.json({ error: 'Invalid feed configuration' }, 400);
+  return ctx.json({ error: "Invalid feed configuration" }, 400);
 }
 
 const config = result.right; // narrowed, safe to use downstream
@@ -344,21 +344,21 @@ Effect is used throughout the Worker layer for typed error handling, service com
 All expected failure cases in the Worker are modelled as tagged error types using `Data.TaggedError`. This encodes failure modes in the type signature of every function that can fail, making incomplete error handling a compile-time error rather than a runtime surprise:
 
 ```ts
-import { Data } from 'effect';
+import { Data } from "effect";
 
-class GitHubRateLimitError extends Data.TaggedError('GitHubRateLimitError')<{
+class GitHubRateLimitError extends Data.TaggedError("GitHubRateLimitError")<{
   retryAfter: number;
 }> {}
 
-class GitHubNotFoundError extends Data.TaggedError('GitHubNotFoundError')<{
+class GitHubNotFoundError extends Data.TaggedError("GitHubNotFoundError")<{
   resource: string;
 }> {}
 
-class GitHubNetworkError extends Data.TaggedError('GitHubNetworkError')<{
+class GitHubNetworkError extends Data.TaggedError("GitHubNetworkError")<{
   cause: unknown;
 }> {}
 
-class FeedParseError extends Data.TaggedError('FeedParseError')<{
+class FeedParseError extends Data.TaggedError("FeedParseError")<{
   url: string;
   cause: unknown;
 }> {}
@@ -371,20 +371,22 @@ A function that calls the GitHub API has a signature like `Effect<Release[], Git
 The GitHub API client is modelled as an Effect service using `Context.Tag`. This enables type-safe dependency injection without framework magic:
 
 ```ts
-import { Context, Effect } from 'effect';
+import { Context, Effect } from "effect";
 
 interface GitHubClientService {
   getFeaturedTopics: () => Effect.Effect<Topic[], GitHubNetworkError>;
   validateTopic: (slug: string) => Effect.Effect<boolean, GitHubNetworkError>;
-  getStarredRepos: (username: string) => Effect.Effect<Repo[], GitHubRateLimitError | GitHubNetworkError>;
-  getRepoReleases: (owner: string, repo: string) => Effect.Effect<Release[], GitHubRateLimitError | GitHubNetworkError>;
+  getStarredRepos: (
+    username: string,
+  ) => Effect.Effect<Repo[], GitHubRateLimitError | GitHubNetworkError>;
+  getRepoReleases: (
+    owner: string,
+    repo: string,
+  ) => Effect.Effect<Release[], GitHubRateLimitError | GitHubNetworkError>;
   // ...
 }
 
-class GitHubClient extends Context.Tag('GitHubClient')<
-  GitHubClient,
-  GitHubClientService
->() {}
+class GitHubClient extends Context.Tag("GitHubClient")<GitHubClient, GitHubClientService>() {}
 ```
 
 ### Workers-Specific: Per-Request Layer Construction
@@ -424,13 +426,15 @@ This is the single most important Effect-specific constraint in a Workers enviro
 The topic feed pipeline makes up to 125 parallel GitHub API calls (5 topics × 25 repos). `Effect.all` with a controlled concurrency bound replaces `Promise.all`:
 
 ```ts
-import { Effect } from 'effect';
+import { Effect } from "effect";
 
 // Fetch releases for all repos concurrently, bounded to 20 parallel requests
-const allReleases = yield* Effect.all(
-  repos.map(repo => fetchRepoReleases(repo.owner, repo.name)),
-  { concurrency: 20 }
-);
+const allReleases =
+  yield *
+  Effect.all(
+    repos.map((repo) => fetchRepoReleases(repo.owner, repo.name)),
+    { concurrency: 20 },
+  );
 ```
 
 This provides automatic error accumulation, structured cancellation, and a composable interface that `Promise.all` does not. The concurrency bound prevents Workers from hitting OS-level connection limits under peak fan-out.
@@ -440,17 +444,15 @@ This provides automatic error accumulation, structured cancellation, and a compo
 Rate-limit retries use Effect's `Schedule` module rather than manual `retry-after` header inspection. This composably describes back-off policy:
 
 ```ts
-import { Effect, Schedule, Duration } from 'effect';
+import { Effect, Schedule, Duration } from "effect";
 
 const retryPolicy = Schedule.exponential(Duration.seconds(1)).pipe(
   Schedule.jittered,
   Schedule.whileInput((e: unknown) => e instanceof GitHubRateLimitError),
-  Schedule.upTo(Duration.seconds(30))
+  Schedule.upTo(Duration.seconds(30)),
 );
 
-const result = yield* fetchRepoReleases(owner, repo).pipe(
-  Effect.retry(retryPolicy)
-);
+const result = yield * fetchRepoReleases(owner, repo).pipe(Effect.retry(retryPolicy));
 ```
 
 ### Running Effects at the Hono Boundary
@@ -458,12 +460,12 @@ const result = yield* fetchRepoReleases(owner, repo).pipe(
 Hono handlers are async functions. Effect computations are run to completion with `Effect.runPromise` at the handler boundary. Errors that escape the Effect pipeline surface as unhandled promise rejections — ensure all expected error types are handled before `runPromise`:
 
 ```ts
-app.get('/feed/:config', async (ctx) => {
+app.get("/feed/:config", async (ctx) => {
   const result = await Effect.runPromise(
     generateFeed(config).pipe(
       Effect.provide(GitHubClientLive),
-      Effect.catchAll((error) => Effect.succeed(errorResponse(error)))
-    )
+      Effect.catchAll((error) => Effect.succeed(errorResponse(error))),
+    ),
   );
 
   return result;
@@ -481,12 +483,14 @@ References: [Effect docs](https://effect.website/docs) · [Effect — Running Ef
 The core feed generation endpoint. Returns Atom 1.0 XML (or JSON Feed 1.1 if `format: "json"` is encoded in the config, once REQ-013 is implemented).
 
 **Response headers:**
+
 ```
 Content-Type: application/atom+xml; charset=utf-8
 Cache-Control: public, max-age={ttl}
 ```
 
 **Error responses:**
+
 - `400 Bad Request` — malformed or invalid config token
 - `503 Service Unavailable` — GitHub API unreachable; returns previous cached feed with `Retry-After` header if available, otherwise returns 503 with a human-readable error body
 
@@ -515,6 +519,7 @@ Validates whether a GitHub username exists and has a public profile. Proxied fro
 **Response:** `{ exists: boolean, username: string | null, hasStars: boolean }`. The `hasStars` field indicates whether the user has any public starred repositories, allowing the frontend to block feed generation and surface a message before ever fetching the full starred repo list.
 
 **Error responses:**
+
 - Returns `{ exists: false, username: null, hasStars: false }` for unknown usernames — never a 404, so the frontend does not need to handle an error response for the not-found case.
 
 **Rate limit consideration:** Responses should be cached for a short TTL (e.g. 5 minutes). Cache key is the full request URL.
@@ -528,6 +533,7 @@ Returns the public starred repositories for a GitHub username. Proxied from `htt
 **Pagination:** GitHub returns starred repos in pages of 30. The Worker fetches all pages up to a maximum of the first 100 starred repos (to limit API calls), returning them as a flat array. The "load more" pattern in the UI operates client-side against this pre-fetched list.
 
 **Error responses:**
+
 - `404 Not Found` — username does not exist or has no public profile
 - Returns an empty array (not an error) if the user has zero public starred repos; the frontend is responsible for blocking feed generation in this case and displaying an appropriate message.
 
@@ -544,20 +550,20 @@ Workers V8 isolate compatibility is confirmed (see OQ-2). The `nodejs_compat` fl
 Example usage:
 
 ```ts
-import { Feed } from 'feed';
+import { Feed } from "feed";
 
 const feed = new Feed({
-  title: 'OSSReleaseFeed: accessibility, web-components',
+  title: "OSSReleaseFeed: accessibility, web-components",
   id: feedUrl,
   link: feedUrl,
   updated: mostRecentEntryDate,
-  copyright: '',
+  copyright: "",
 });
 
 entries.forEach((entry) => {
   feed.addItem({
-    title: entry.title,       // e.g. "[whatwg/html] Release: 2024-01-15"
-    id: entry.githubUrl,      // stable, permanent URI
+    title: entry.title, // e.g. "[whatwg/html] Release: 2024-01-15"
+    id: entry.githubUrl, // stable, permanent URI
     link: entry.githubUrl,
     date: entry.date,
     description: entry.summary,
@@ -577,11 +583,13 @@ const jsonFeed = feed.json1();
 The two feed source types use different retrieval approaches, determined by what GitHub exposes (see OQ-2).
 
 **Topic-based feeds** — fan-out aggregation pipeline. GitHub exposes no native Atom feed per topic. The Worker must:
+
 1. Query the GitHub Topics API to discover repositories tagged with the configured topic(s)
 2. For each discovered repository, fetch release data via `/:owner/:repo/releases.atom` or the Releases REST API
 3. Merge, sort, and deduplicate entries across all repositories before serialising
 
 **Starred repository feeds** — per-repo Atom feeds. The Worker must:
+
 1. Fetch the user's starred repositories via `GET /users/{username}/starred` (paginated, up to 100 repos)
 2. For each starred repository, fetch `/:owner/:repo/releases.atom` directly
 3. Merge, sort, and deduplicate entries before serialising
@@ -593,6 +601,7 @@ Using the per-repo `releases.atom` feed for the starred path is more efficient t
 The `<author><name>` element is confirmed present in `releases.atom`, containing the GitHub username of whoever created the release. In automated release pipelines this will be a bot account (e.g. `lit-robot`) — that is correct and expected behaviour, not a bug. Map it directly to the `author` field in the `FeedEntry` schema.
 
 Field mapping from `releases.atom`:
+
 - Author login: `entry > author > name` → `FeedEntry.authorLogin`
 - Entry link (use as stable `id`): `entry > link[rel="alternate"][@href]` → `FeedEntry.id` and `FeedEntry.link`
 - Content (HTML-entity-encoded in the raw XML): `entry > content` — entities are decoded automatically by the XML parser during Atom feed parsing; **sanitise the decoded HTML** via `HTMLRewriter` before storing in `FeedEntry.summary`
@@ -649,14 +658,14 @@ Feed content from `releases.atom` is HTML-entity-encoded within the XML (e.g. `&
 
 ```ts
 async function sanitiseHtml(decodedHtml: string): Promise<string> {
-  const unsafeTags = ['script', 'iframe', 'object', 'embed', 'form'];
+  const unsafeTags = ["script", "iframe", "object", "embed", "form"];
 
   const response = new HTMLRewriter()
-    .on(unsafeTags.join(','), { element: (el) => el.remove() })
-    .on('*', {
+    .on(unsafeTags.join(","), { element: (el) => el.remove() })
+    .on("*", {
       element(el) {
         for (const [name] of el.attributes) {
-          if (name.startsWith('on')) el.removeAttribute(name);
+          if (name.startsWith("on")) el.removeAttribute(name);
         }
       },
     })
@@ -672,17 +681,18 @@ References: [Cloudflare Workers — HTMLRewriter](https://developers.cloudflare.
 
 ## Caching Strategy
 
-| Cache target | Key | TTL | Notes |
-|-------------|-----|-----|-------|
-| Feed responses | Full request URL | Config `ttl` value (min 1hr) | Per unique feed config |
-| Featured topics | `/api/topics/featured` | 24 hours | Changes infrequently |
-| Topic validation | `/api/topics/validate?q={query}` | 1 hour | Short TTL, high reuse |
-| Username validation | `/api/users/validate/{username}` | 5 minutes | Short TTL — user may gain stars or be created |
-| Starred repos list | `/api/starred/{username}` | 1 hour | Balance freshness vs. API cost |
+| Cache target        | Key                              | TTL                          | Notes                                         |
+| ------------------- | -------------------------------- | ---------------------------- | --------------------------------------------- |
+| Feed responses      | Full request URL                 | Config `ttl` value (min 1hr) | Per unique feed config                        |
+| Featured topics     | `/api/topics/featured`           | 24 hours                     | Changes infrequently                          |
+| Topic validation    | `/api/topics/validate?q={query}` | 1 hour                       | Short TTL, high reuse                         |
+| Username validation | `/api/users/validate/{username}` | 5 minutes                    | Short TTL — user may gain stars or be created |
+| Starred repos list  | `/api/starred/{username}`        | 1 hour                       | Balance freshness vs. API cost                |
 
 All caching uses the Cloudflare Cache API. The Worker never sets cookies or uses KV storage.
 
 **Rate limit handling (429):** If GitHub returns a 429, the Worker must:
+
 1. Return the previously cached feed response unchanged
 2. Add a `Retry-After` HTTP response header to indicate when the next attempt should be made
 3. Never return an empty feed — doing so causes feed readers to treat all previously seen entries as removed
@@ -720,6 +730,7 @@ All workflows live in `.github/workflows/`. Every pull request and every merge t
 **Critical path:** merges to `main` are where everything must run and pass — the full suite is non-negotiable there. Pull request workflows should be kept as fast as reasonable to preserve a short feedback loop. If PR runs become slow as the test suite grows, revisit which steps run on pull requests and consider deferring slower checks (e.g. end-to-end, accessibility audit) to the `main` merge workflow only.
 
 **`ci.yml` — runs on every pull request and push to `main`**
+
 ```
 1. Setup Node.js 22
 2. Setup Bun
@@ -733,6 +744,7 @@ All workflows live in `.github/workflows/`. Every pull request and every merge t
 ```
 
 **`e2e.yml` — runs on every pull request and push to `main` (after Cloudflare Pages preview deployment)**
+
 ```
 1. Setup Node.js 22
 2. Setup Bun
@@ -741,9 +753,11 @@ All workflows live in `.github/workflows/`. Every pull request and every merge t
 5. Run Playwright end-to-end tests against preview URL
 6. Run axe-core accessibility audit via Playwright against preview URL
 ```
+
 Note: if PR feedback loops become too slow, this workflow is the first candidate to move to `main`-only. End-to-end tests are the most time-consuming step and depend on an external deployment being available.
 
 **`deploy.yml` — runs on merge to `main`**
+
 ```
 1. Setup Node.js 22
 2. Setup Bun
@@ -754,18 +768,19 @@ Note: if PR feedback loops become too slow, this workflow is the first candidate
 
 ### GitHub-Native Security Tooling
 
-| Tool | Trigger | Purpose |
-|------|---------|---------|
-| **CodeRabbit** | Every PR (automatic) | AI code review — line-by-line comments on bugs, logic issues, and code quality; free for public repositories |
-| **Dependabot** | Weekly (npm) + on workflow file changes | Automated dependency update PRs |
-| **CodeQL** | Every PR + push to `main` | Static analysis for security vulnerabilities |
-| **Socket Security** | Every PR | Supply chain security — detects malicious or compromised packages |
+| Tool                | Trigger                                 | Purpose                                                                                                      |
+| ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **CodeRabbit**      | Every PR (automatic)                    | AI code review — line-by-line comments on bugs, logic issues, and code quality; free for public repositories |
+| **Dependabot**      | Weekly (npm) + on workflow file changes | Automated dependency update PRs                                                                              |
+| **CodeQL**          | Every PR + push to `main`               | Static analysis for security vulnerabilities                                                                 |
+| **Socket Security** | Every PR                                | Supply chain security — detects malicious or compromised packages                                            |
 
 **CodeRabbit** installs as a GitHub App and runs automatically on every pull request without any CI workflow configuration. It leaves inline review comments and a PR summary, but does not block merges — it is advisory only and sits outside the critical path. This is intentional: AI review is a quality aid, not a gate. If the signal-to-noise ratio proves poor in practice, it can be tuned via a `.coderabbit.yaml` config file in the repository root or disabled without touching any workflow files.
 
 Note: Cursor's Bugbot was also considered but ruled out — it costs $40/user/month, is tightly coupled to the Cursor IDE, and offers no free tier for open source projects. CodeRabbit is the better fit here.
 
 Dependabot configuration (`.github/dependabot.yml`):
+
 ```yaml
 updates:
   - package-ecosystem: npm
@@ -787,6 +802,7 @@ updates:
 The React SPA is deployed to Cloudflare Pages. Cloudflare Pages automatically creates a preview deployment for every pull request, giving the Playwright + axe-core E2E suite a stable URL to run against before merge.
 
 Build settings:
+
 - Build command: `bun run build --filter frontend` (Vite build only — scoped to the `frontend` workspace to ensure Worker code is never touched here; Wrangler handles the Worker separately)
 - Build output directory: `frontend/dist`
 - Environment variable: `VITE_WORKER_URL` pointing to the deployed Worker URL
@@ -798,6 +814,7 @@ Build settings:
 The Worker is deployed via Wrangler. The Worker handles all API routes and feed generation. The `wrangler.toml` defines route bindings.
 
 Secrets (set once via `wrangler secret put`, never committed):
+
 - `GITHUB_PAT` — personal access token for GitHub API requests
 
 ---
@@ -843,6 +860,7 @@ Bun works well as a package manager and script runner for Cloudflare Workers pro
 GitHub does expose per-repository Atom feeds, confirmed working: `/:owner/:repo/releases.atom`, `/:owner/:repo/commits.atom`, `/:owner/:repo/tags.atom`, and `/:user.atom` for user activity. These are useful for the starred repositories path — rather than paginating through the Releases REST API for each repo, the Worker can fetch the user's starred repos via the API and then consume each repo's `releases.atom` directly. This avoids unnecessary REST API pagination and reduces rate limit consumption on the starred path.
 
 **Architecture implications:**
+
 - **Topic feeds:** use the GitHub Topics API to discover repos by topic, then fan out to each repo's `releases.atom` or the Releases REST API for release data. No shortcut available.
 - **Starred feeds:** fetch starred repos via `GET /users/{username}/starred`, then consume each repo's `releases.atom`. More efficient than the REST API for release data retrieval.
 
@@ -883,9 +901,9 @@ The HTML Sanitisation section above has been updated to reflect this pipeline.
 
 ## Revision History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2026-02-28 | Schalk Neethling | Initial draft, derived from PRD v1.1 Technical Considerations |
-| 1.1 | 2026-03-01 | Schalk Neethling | OQ-2 resolved: GitHub topic Atom feeds do not exist; fan-out pipeline confirmed; per-repo releases.atom viable for starred path; feed package Workers compatibility confirmed. Data Retrieval Strategy section added. |
-| 1.2 | 2026-03-01 | Schalk Neethling | OQ-3 resolved: author field confirmed in releases.atom and Issues API. OQ-4 resolved: Workers Free plan 50-subrequest hard limit makes Paid plan a deployment requirement; 125 fan-out calls feasible on Paid. OQ-5 resolved: HTMLRewriter (built-in) + html-entities (npm) confirmed as sanitisation pipeline; DOMPurify and HTML Sanitizer API unavailable in Workers V8 isolate. HTML Sanitisation section rewritten with confirmed implementation. |
-| 1.3 | 2026-03-02 | Schalk Neethling | Adopted Effect (`effect` package) for the Worker layer. Replaces Valibot with Effect Schema; all schema code examples updated to Effect Schema API. Input Validation section updated to use `@hono/standard-validator` with Standard Schema v1 (implemented by Effect Schema) and `Schema.decodeUnknownEither` for non-route validation. New Effect Architecture section added covering typed errors (`Data.TaggedError`), service layer (`Context.Tag`/`Layer`), the Workers-specific per-request Layer construction constraint, concurrent fan-out with `Effect.all`, retry with `Schedule`, and running Effects at the Hono boundary. Testing strategy updated to reference Effect Schema. Effect bundle check added to Phase 2.1 spike. |
+| Version | Date       | Author           | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------- | ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.0     | 2026-02-28 | Schalk Neethling | Initial draft, derived from PRD v1.1 Technical Considerations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 1.1     | 2026-03-01 | Schalk Neethling | OQ-2 resolved: GitHub topic Atom feeds do not exist; fan-out pipeline confirmed; per-repo releases.atom viable for starred path; feed package Workers compatibility confirmed. Data Retrieval Strategy section added.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 1.2     | 2026-03-01 | Schalk Neethling | OQ-3 resolved: author field confirmed in releases.atom and Issues API. OQ-4 resolved: Workers Free plan 50-subrequest hard limit makes Paid plan a deployment requirement; 125 fan-out calls feasible on Paid. OQ-5 resolved: HTMLRewriter (built-in) + html-entities (npm) confirmed as sanitisation pipeline; DOMPurify and HTML Sanitizer API unavailable in Workers V8 isolate. HTML Sanitisation section rewritten with confirmed implementation.                                                                                                                                                                                                                                                                                      |
+| 1.3     | 2026-03-02 | Schalk Neethling | Adopted Effect (`effect` package) for the Worker layer. Replaces Valibot with Effect Schema; all schema code examples updated to Effect Schema API. Input Validation section updated to use `@hono/standard-validator` with Standard Schema v1 (implemented by Effect Schema) and `Schema.decodeUnknownEither` for non-route validation. New Effect Architecture section added covering typed errors (`Data.TaggedError`), service layer (`Context.Tag`/`Layer`), the Workers-specific per-request Layer construction constraint, concurrent fan-out with `Effect.all`, retry with `Schedule`, and running Effects at the Hono boundary. Testing strategy updated to reference Effect Schema. Effect bundle check added to Phase 2.1 spike. |

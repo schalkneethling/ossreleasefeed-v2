@@ -62,13 +62,13 @@ The project is a personal side project intended first to solve a genuine problem
 
 ### Success Metrics
 
-| Metric | Baseline | Target | Timeline | Measurement Method |
-|--------|----------|--------|----------|-------------------|
-| Unique feed URLs generated | 0 | 200 | 30 days post-launch | Cloudflare Workers analytics |
-| Feeds still active (polled) | — | 40% of generated | 30 days post-generation | Worker request logs |
-| GitHub API rate limit headroom | — | >50% remaining at peak | Ongoing | Rate limit response headers |
-| Feed generation p95 latency | — | <800ms | Ongoing | Cloudflare Workers analytics |
-| Accessibility audit score | — | Zero critical issues, WCAG 2.1 AA | Pre-launch | axe / manual audit |
+| Metric                         | Baseline | Target                            | Timeline                | Measurement Method           |
+| ------------------------------ | -------- | --------------------------------- | ----------------------- | ---------------------------- |
+| Unique feed URLs generated     | 0        | 200                               | 30 days post-launch     | Cloudflare Workers analytics |
+| Feeds still active (polled)    | —        | 40% of generated                  | 30 days post-generation | Worker request logs          |
+| GitHub API rate limit headroom | —        | >50% remaining at peak            | Ongoing                 | Rate limit response headers  |
+| Feed generation p95 latency    | —        | <800ms                            | Ongoing                 | Cloudflare Workers analytics |
+| Accessibility audit score      | —        | Zero critical issues, WCAG 2.1 AA | Pre-launch              | axe / manual audit           |
 
 ---
 
@@ -117,6 +117,7 @@ The project is a personal side project intended first to solve a genuine problem
 ### P0 — Must Have for Launch
 
 **REQ-001: Topic Feed Generation**
+
 - **Description:** A user can select from a list of featured GitHub topics and/or enter custom topic slugs, then receive a valid Atom 1.0 feed URL containing release activity from repositories tagged with those topics. The feed is generated on request and cached server-side.
 - **User Story:** As a developer, I want to follow everything tagged `accessibility` on GitHub so that I discover new projects and stay current on releases without curating a list manually.
 - **Acceptance Criteria:**
@@ -134,6 +135,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** GitHub Search API (`/search/repositories?q=topic:X`), GitHub Topics API (`/search/topics?q=is:featured`), REQ-005 (URL encoding), REQ-007 (caching), REQ-008 (custom topic validation)
 
 **REQ-002: Starred Repos Feed Generation**
+
 - **Description:** A user can enter a GitHub username and receive a valid Atom 1.0 feed URL reflecting release activity from that user's public starred repositories.
 - **User Story:** As a developer, I want a feed based on my GitHub stars so that my existing curation work on GitHub becomes useful in my feed reader.
 - **Acceptance Criteria:**
@@ -146,6 +148,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** GitHub Users API, REQ-005, REQ-007, REQ-009
 
 **REQ-009: Starred Repos Filterable List**
+
 - **Description:** After a valid username is entered, the tool always fetches and displays the user's starred repos as a filterable, selectable list. The user may deselect individual repos they do not want included in the feed, or proceed with all repos selected. This step is required — it is not optional — as it gives the user full visibility into and control over what will be in their feed before the URL is generated.
 - **Acceptance Criteria:**
   - [ ] The list is always shown after a valid username is confirmed; it cannot be skipped
@@ -160,6 +163,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-002
 
 **REQ-003: Activity Type Selection**
+
 - **Description:** The intent is for users to be able to select what type of GitHub activity to include in their feed: releases only, or releases plus issues and pull requests. For starred repo feeds this is reasonably straightforward since the tool operates against a known list of repositories. For topic feeds this has not yet been validated — it may require a per-repo fan-out that has meaningful rate limit and latency implications. This requirement should not be treated as fully specified until the technical spike confirms feasibility for both feed types. See the caveat and Open Question 5 below.
 - **Caveat:** For starred repo feeds, activity type filtering is straightforward — the tool works against a known list of repos and can call the appropriate endpoint per repo. For topic feeds, this is less certain: GitHub does not expose a native per-topic Atom feed with activity type filtering. Serving anything beyond "releases only" for a topic feed will likely require fetching the list of repos matching the topic, then making per-repo API calls for each activity type, and aggregating the results. This has meaningful implications for API rate limit consumption and response latency and must be validated before this requirement is fully specified for the topic feed path. See Open Question 5.
 - **Acceptance Criteria:**
@@ -171,6 +175,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-001 or REQ-002
 
 **REQ-004: Cache / Refresh Interval Selection**
+
 - **Description:** The user selects how frequently the server-side cache for their feed is invalidated. A server-enforced minimum prevents abuse.
 - **Acceptance Criteria:**
   - [ ] Available options: 1 hour, 6 hours, 12 hours, 24 hours (default), 48 hours
@@ -180,6 +185,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-007
 
 **REQ-005: Stateless Base64-Encoded Feed URLs**
+
 - **Description:** Feed configuration is encoded as a base64 URL-safe string and embedded in the feed URL path. No server-side user records are required.
 - **Acceptance Criteria:**
   - [ ] Config object (source type, repos/topics, activity type, TTL) is JSON-serialised and base64url-encoded
@@ -190,6 +196,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** None
 
 **REQ-006: Valid Atom 1.0 Output**
+
 - **Description:** All generated feeds conform to the Atom Syndication Format (RFC 4287) so they work in any standards-compliant feed reader without modification.
 - **Acceptance Criteria:**
   - [ ] Feed passes the W3C Feed Validation Service
@@ -204,6 +211,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** None
 
 **REQ-007: Server-Side Caching & Incremental Feed Updates**
+
 - **Description:** Feed responses are cached at the edge using the Cloudflare Cache API, keyed on the full feed URL. This protects against GitHub API rate limits and improves response times for shared/popular feeds. Critically, when a cached feed is refreshed, only genuinely new content is appended — stale entries are not re-emitted in a way that causes feed readers to treat them as unread.
 - **Acceptance Criteria:**
   - [ ] Cache key is the full request URL
@@ -218,6 +226,7 @@ The project is a personal side project intended first to solve a genuine problem
 ### P1 — Should Have
 
 **REQ-008: Custom Topic Validation & Addition**
+
 - **Description:** Alongside the featured topics checkbox list, a search field allows users to add topics that are not in the featured list. The field performs a debounced real-time lookup against the GitHub Topics API to confirm a topic exists on GitHub before permitting the user to add it to their selection. Clear feedback is provided at each state.
 - **Acceptance Criteria:**
   - [ ] Validation is debounced at 400–500ms after the user stops typing to avoid excessive API requests
@@ -231,6 +240,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-001, GitHub Topics API (`/search/topics?q={query}`)
 
 **REQ-010: Feed URL Display and Copy Button**
+
 - **Description:** The generated feed URL is displayed in a visible, accessible, and copyable form alongside a one-click copy button. The specific element used to display the URL should be determined during the technical specification phase — the semantically correct choice is likely an `<a>` element rather than a `readonly` input, as the URL is a link to follow rather than a value to edit. The copy button is a convenience enhancement on top of an independently meaningful and functional URL.
 - **Acceptance Criteria:**
   - [ ] The feed URL is fully visible or scrollable if it exceeds the available width
@@ -244,6 +254,7 @@ The project is a personal side project intended first to solve a genuine problem
 ### P2 — Nice to Have
 
 **REQ-011: QR Code for Feed URL**
+
 - **Description:** A QR code of the feed URL is generated client-side so users on mobile feed readers can scan it directly.
 - **Acceptance Criteria:**
   - [ ] QR code is generated entirely client-side (no third-party image service)
@@ -252,6 +263,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-005, REQ-010
 
 **REQ-012: Feed Preview**
+
 - **Description:** After generating a URL, the tool shows a preview of the first 5 entries the feed currently contains so users can verify the feed looks correct before subscribing.
 - **Acceptance Criteria:**
   - [ ] The preview is fetched by making a GET request to the generated feed URL from the client; the response is the same Atom XML that any feed reader would receive. The `DOMParser` API is the recommended approach for parsing the Atom XML response on the client before rendering the preview entries — no third-party library should be needed for this. Confirm browser support and document the approach in the technical specification.
@@ -262,6 +274,7 @@ The project is a personal side project intended first to solve a genuine problem
 - **Dependencies:** REQ-006
 
 **REQ-013: JSON Feed 1.1 Output**
+
 - **Description:** In addition to Atom 1.0, the service can generate feeds in the JSON Feed 1.1 format. This is the intended first feature addition after the initial proof of concept is validated, and is not in scope for the POC release. JSON Feed has strong adoption among the feed readers most likely to be used by the target persona (NetNewsWire, Reeder, Feedbin, Miniflux) and is significantly easier to consume for any developer who wants to process the feed programmatically. Since the underlying data model is identical to the Atom output, this is purely a new serialisation path and requires no changes to feed generation logic, caching, or URL config.
 - **Acceptance Criteria:**
   - [ ] JSON Feed output conforms to the JSON Feed 1.1 specification (jsonfeed.org)
@@ -350,38 +363,38 @@ The tool is a single-column layout and should be fully functional at any viewpor
 
 ### External Dependencies
 
-| Dependency | Vendor | Status | Contingency Plan |
-|------------|--------|--------|------------------|
-| GitHub REST API | GitHub (Microsoft) | Stable, versioned | Cache stale responses; surface clear error if API is down |
-| GitHub Atom feeds | GitHub (Microsoft) | Stable but undocumented | Per-repo release feeds have been stable for years; monitor for breakage |
-| Cloudflare Workers | Cloudflare | GA | Standard service; no realistic contingency needed for a side project |
-| Bun (local dev/build) | Oven | Maturing | Fall back to Node.js 22 if Bun compatibility with Workers tooling is a blocker |
+| Dependency            | Vendor             | Status                  | Contingency Plan                                                               |
+| --------------------- | ------------------ | ----------------------- | ------------------------------------------------------------------------------ |
+| GitHub REST API       | GitHub (Microsoft) | Stable, versioned       | Cache stale responses; surface clear error if API is down                      |
+| GitHub Atom feeds     | GitHub (Microsoft) | Stable but undocumented | Per-repo release feeds have been stable for years; monitor for breakage        |
+| Cloudflare Workers    | Cloudflare         | GA                      | Standard service; no realistic contingency needed for a side project           |
+| Bun (local dev/build) | Oven               | Maturing                | Fall back to Node.js 22 if Bun compatibility with Workers tooling is a blocker |
 
 ### Risks & Mitigation
 
-| Risk | Probability | Impact | Mitigation Strategy |
-|------|-------------|--------|---------------------|
-| GitHub removes or breaks Atom feeds for releases | Low | High | Monitor; REST API fallback exists (`/releases` endpoint) |
-| GitHub API rate limiting at scale | Medium | Medium | Aggressive edge caching; single authenticated PAT; TTL floor |
-| Bun incompatibility with Cloudflare Workers build pipeline | Medium | Low | Bun is a DX choice, not a runtime requirement; Node.js is a drop-in fallback |
-| Low user adoption | Medium | Low | This is the primary thing we are validating; low investment by design |
-| Spam/abuse of feed generation endpoint | Low | Medium | TTL floor prevents rapid repeated requests; no user data at risk |
+| Risk                                                       | Probability | Impact | Mitigation Strategy                                                          |
+| ---------------------------------------------------------- | ----------- | ------ | ---------------------------------------------------------------------------- |
+| GitHub removes or breaks Atom feeds for releases           | Low         | High   | Monitor; REST API fallback exists (`/releases` endpoint)                     |
+| GitHub API rate limiting at scale                          | Medium      | Medium | Aggressive edge caching; single authenticated PAT; TTL floor                 |
+| Bun incompatibility with Cloudflare Workers build pipeline | Medium      | Low    | Bun is a DX choice, not a runtime requirement; Node.js is a drop-in fallback |
+| Low user adoption                                          | Medium      | Low    | This is the primary thing we are validating; low investment by design        |
+| Spam/abuse of feed generation endpoint                     | Low         | Medium | TTL floor prevents rapid repeated requests; no user data at risk             |
 
 ---
 
 ## Timeline & Milestones
 
-| Milestone | Description |
-|-----------|-------------|
-| PRD v1 agreed | Core scope locked for initial build |
-| Technical spike | Validate Bun + Cloudflare Workers local dev setup; confirm GitHub API endpoints behave as expected |
-| P0 implementation | Worker routing, feed generation, base64 config, caching |
-| UI implementation | Step-by-step builder, P0 interactions, accessibility audit |
-| Beta | Deployed to production Workers, shareable for feedback |
-| P1 implementation | Custom topic validation, starred repo filter list, copy button refinements |
-| Public launch (POC) | Blog post, share on relevant communities; validate sustained user interest |
-| JSON Feed (REQ-013) | First post-POC feature: JSON Feed 1.1 output format alongside existing Atom output |
-| P2 implementation | QR code, feed preview, and any further enhancements informed by POC feedback |
+| Milestone           | Description                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| PRD v1 agreed       | Core scope locked for initial build                                                                |
+| Technical spike     | Validate Bun + Cloudflare Workers local dev setup; confirm GitHub API endpoints behave as expected |
+| P0 implementation   | Worker routing, feed generation, base64 config, caching                                            |
+| UI implementation   | Step-by-step builder, P0 interactions, accessibility audit                                         |
+| Beta                | Deployed to production Workers, shareable for feedback                                             |
+| P1 implementation   | Custom topic validation, starred repo filter list, copy button refinements                         |
+| Public launch (POC) | Blog post, share on relevant communities; validate sustained user interest                         |
+| JSON Feed (REQ-013) | First post-POC feature: JSON Feed 1.1 output format alongside existing Atom output                 |
+| P2 implementation   | QR code, feed preview, and any further enhancements informed by POC feedback                       |
 
 Dates are [TBD] — this is a side project with no fixed deadline.
 
@@ -401,7 +414,7 @@ Dates are [TBD] — this is a side project with no fixed deadline.
    - **Owner:** Schalk
    - **Deadline:** Before Phase 2 planning
 
-5. **Activity type filtering for topic feeds and per-topic repository cap:** GitHub does not appear to expose a native per-topic Atom feed with activity type filtering. Serving "releases + issues & PRs" for a topic feed will likely require fetching the repo list for each topic, then making per-repo API calls for each activity type, and aggregating the results. This needs to be validated during the technical spike alongside the per-topic repository cap. The proposed default cap is 25 repos per topic, giving a worst-case cost of 5 topics × 25 repos = 125 API calls per feed generation on a cache miss. Key questions: is this within the rate limit budget at expected traffic levels, is the p95 latency acceptable at that fan-out, and does "all activity" remain feasible within those constraints? If not, "all activity" may need to be restricted to starred repo feeds only for the initial release, and/or the per-topic repo cap may need adjusting.
+4. **Activity type filtering for topic feeds and per-topic repository cap:** GitHub does not appear to expose a native per-topic Atom feed with activity type filtering. Serving "releases + issues & PRs" for a topic feed will likely require fetching the repo list for each topic, then making per-repo API calls for each activity type, and aggregating the results. This needs to be validated during the technical spike alongside the per-topic repository cap. The proposed default cap is 25 repos per topic, giving a worst-case cost of 5 topics × 25 repos = 125 API calls per feed generation on a cache miss. Key questions: is this within the rate limit budget at expected traffic levels, is the p95 latency acceptable at that fan-out, and does "all activity" remain feasible within those constraints? If not, "all activity" may need to be restricted to starred repo feeds only for the initial release, and/or the per-topic repo cap may need adjusting.
    - **Owner:** Schalk
    - **Deadline:** During the technical spike, before REQ-003 implementation
 
@@ -431,8 +444,8 @@ No direct equivalent exists today. Tangentially related tools include:
 
 ## Revision History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 0.1 | 2026-02-28 | Schalk Neethling | Initial draft |
-| 1.1 | 2026-02-28 | Schalk Neethling | Revised UI entry flow: single "Create feed" CTA → option cards for mode selection. Updated Use Cases 1 & 2, Key User Flow diagram, and Interaction Patterns to reflect this. Updated REQ-001 to include featured topics checkbox grid (top 25 from GitHub Topics API). Replaced REQ-008 autocomplete combobox with validate-and-add pattern. Updated API endpoints and Integration Points accordingly. Corrected User Goals wording to "one or more OSS topic ecosystems" and "one, more, or all of the repos they have starred". Added feasibility caveat and fallback acceptance criterion to REQ-003 for activity type filtering on topic feeds. Added stable entry `<id>` and content-aware `<updated>` requirements to REQ-006. Renamed REQ-007 to reflect incremental update behaviour; added criteria ensuring a refresh with no new content produces an identical feed. Added Open Question 5 on topic feed activity type feasibility. Promoted REQ-009 (Starred Repos Filterable List) from P1 to P0; clarified that presenting the list is always required after username entry — filtering is optional, showing the list is not. Updated REQ-002 and Use Case 2 accordingly. Added REQ-013 (JSON Feed 1.1) as P2, designated as the first post-POC feature; updated Timeline and Glossary accordingly. |
-| 1.2 | 2026-02-28 | Schalk Neethling | Finalised PRD. Removed Technical Considerations section (Architecture Overview, Runtime & Tooling, Integration Points, Data Model, Non-Functional Requirements, Security & Compliance, APIs & Endpoints) — all content moved to Technical Specification v1.0. Updated status to Final. Added companion document references. |
+| Version | Date       | Author           | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------- | ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1     | 2026-02-28 | Schalk Neethling | Initial draft                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 1.1     | 2026-02-28 | Schalk Neethling | Revised UI entry flow: single "Create feed" CTA → option cards for mode selection. Updated Use Cases 1 & 2, Key User Flow diagram, and Interaction Patterns to reflect this. Updated REQ-001 to include featured topics checkbox grid (top 25 from GitHub Topics API). Replaced REQ-008 autocomplete combobox with validate-and-add pattern. Updated API endpoints and Integration Points accordingly. Corrected User Goals wording to "one or more OSS topic ecosystems" and "one, more, or all of the repos they have starred". Added feasibility caveat and fallback acceptance criterion to REQ-003 for activity type filtering on topic feeds. Added stable entry `<id>` and content-aware `<updated>` requirements to REQ-006. Renamed REQ-007 to reflect incremental update behaviour; added criteria ensuring a refresh with no new content produces an identical feed. Added Open Question 5 on topic feed activity type feasibility. Promoted REQ-009 (Starred Repos Filterable List) from P1 to P0; clarified that presenting the list is always required after username entry — filtering is optional, showing the list is not. Updated REQ-002 and Use Case 2 accordingly. Added REQ-013 (JSON Feed 1.1) as P2, designated as the first post-POC feature; updated Timeline and Glossary accordingly. |
+| 1.2     | 2026-02-28 | Schalk Neethling | Finalised PRD. Removed Technical Considerations section (Architecture Overview, Runtime & Tooling, Integration Points, Data Model, Non-Functional Requirements, Security & Compliance, APIs & Endpoints) — all content moved to Technical Specification v1.0. Updated status to Final. Added companion document references.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |

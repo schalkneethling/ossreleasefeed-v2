@@ -48,11 +48,13 @@ The one remaining validation — confirming `@octokit/rest` bundles and deploys 
 ### Tasks
 
 **1.1 — Repository & workspace setup**
+
 - Initialise a Bun workspace monorepo with `frontend/` and `worker/` packages
 - Configure root `tsconfig.json` with project references; enable strict mode
 - Commit `.gitignore`, `README.md` (brief project description, link to PRD), `LICENSE`
 
 **1.2 — Linting & formatting**
+
 - Install and configure Oxlint (`.oxlintrc.json`) — TypeScript, React, and jsx-a11y equivalent rules
 - Install and configure Stylelint (`.stylelintrc.json`) with the following:
   - Extends `stylelint-config-standard`
@@ -67,6 +69,7 @@ The one remaining validation — confirming `@octokit/rest` bundles and deploys 
 - Verify all three tools run cleanly on the empty project
 
 **1.3 — Testing infrastructure**
+
 - Install Vitest; configure `vitest.config.ts` for unit and integration test suites
 - Install the `effect` package; confirm it is available in the Worker bundle — the bundle check is part of the Phase 2.1 spike, but the package should be installed at scaffolding time so it is available from task 2.2 onward
 - Install MSW v2; create `tests/integration/setup.ts` with `setupServer` from `msw/node`; configure `beforeAll`, `afterEach`, `afterAll` lifecycle hooks with `onUnhandledRequest: 'error'`; register the setup file in `vitest.config.ts`
@@ -76,12 +79,14 @@ The one remaining validation — confirming `@octokit/rest` bundles and deploys 
 - Create placeholder test files in `tests/unit/`, `tests/integration/`, `tests/e2e/` to confirm the runners execute
 
 **1.4 — Frontend scaffold**
+
 - Scaffold the React SPA with Vite in `frontend/`
 - Enable React Compiler in `vite.config.ts`
 - Create `frontend/src/styles/tokens.css` — define all design tokens as CSS custom properties (colours, spacing, typography scale, radii, transition durations); no values elsewhere in the codebase should be hardcoded
 - Confirm `bun run dev` starts the Vite dev server and the browser renders the default React page
 
 **1.5 — Worker scaffold**
+
 - Scaffold a Hono Worker in `worker/`
 - Define all routes as stubs returning `501 Not Implemented`:
   - `GET /feed/:config`
@@ -92,6 +97,7 @@ The one remaining validation — confirming `@octokit/rest` bundles and deploys 
 - Configure `wrangler.toml`; confirm `wrangler dev` starts the local Worker
 
 **1.6 — GitHub Actions CI**
+
 - Create `.github/workflows/ci.yml`:
   - Triggers: `pull_request`, `push` to `main`
   - Steps: lint → type check → unit tests → integration tests → build (frontend + worker)
@@ -103,11 +109,13 @@ The one remaining validation — confirming `@octokit/rest` bundles and deploys 
   - Steps: `wrangler deploy` (Cloudflare Pages deploys automatically)
 
 **1.7 — GitHub security tooling**
+
 - Create `.github/dependabot.yml` — weekly npm updates + GitHub Actions updates
 - Enable CodeQL analysis via GitHub repository settings or workflow file
 - Configure Socket Security via the GitHub App
 
 **1.8 — Monitoring & analytics scaffolding**
+
 - Install `@sentry/react` in `frontend/`; install `@sentry/cloudflare` in `worker/`
 - Add Sentry DSN as environment variables (not secrets — DSNs are public-safe); configure source map upload in the Vite and Wrangler build steps
 - Add Umami script tag to `frontend/index.html`; define the event tracking helper in `frontend/src/lib/analytics.ts` (wraps `window.umami.track` with a no-op fallback)
@@ -137,6 +145,7 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - If any step fails, resolve the issue before any further Phase 2 tasks begin.
 
 **2.2 — Effect schemas + inferred types**
+
 - Create `worker/src/lib/schemas.ts` as the single source of truth for all validated data shapes
 - Import from `effect`: `Schema`, `Data`, `Either`
 - Define `GithubUsernameSchema` and `TopicSlugSchema` using `Schema.String.pipe(Schema.pattern(...))` — these are the primitive reusable schemas imported by both the `FeedConfig` decoder and route handlers
@@ -150,6 +159,7 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - Write Vitest unit tests for route-level sanitisation: valid and invalid username patterns against `GithubUsernameSchema`; valid and invalid topic slugs against `TopicSlugSchema`; path traversal attempts and injected characters return `Left`
 
 **2.3 — GitHub API client (Effect service)**
+
 - Install `@octokit/rest` — **not** the full `octokit` package. See the constraint documented in the tech spec: the full package bundles `@octokit/plugin-throttling`, which calls `setTimeout` at module scope, rejected by the Workers runtime.
 - Define the `GitHubClient` service using `Context.Tag` (from `effect`) — this is an interface tag, not an implementation. The interface exposes only the methods needed by this project, all returning `Effect` values with typed errors:
   - `getFeaturedTopics(): Effect.Effect<Topic[], GitHubNetworkError>`
@@ -165,6 +175,7 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - Integration tests for all GitHub API interactions use MSW (`msw/node`) to intercept at the fetch level — no mock clients, no special Effect test utilities needed. MSW works because Octokit uses `fetch` internally.
 
 **2.4 — Feed serialisation**
+
 - Install the `feed` package (`jpmonette/feed`) — Workers V8 isolate compatibility confirmed during OQ-2
 - Implement `buildFeed(config: FeedConfig, entries: FeedEntry[], feedUrl: string): Feed` — populates a `Feed` instance with the correct metadata and all entries; does not serialise
 - Each `FeedEntry` is validated against the Effect `FeedEntrySchema` before being added; invalid entries are logged and skipped rather than causing the entire feed generation to fail
@@ -176,12 +187,14 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - Write Vitest integration tests: given fixed `FeedEntry` fixtures passing the Effect schema, `buildFeed` → `feed.atom1()` produces well-formed Atom XML; assert on specific field values (id, title, updated) rather than on raw XML structure
 
 **2.5 — Feed diffing (incremental updates)**
+
 - Implement `diffFeed(cachedFeed: string | null, freshEntries: FeedEntry[]): FeedEntry[]`
 - If `cachedFeed` is null (no prior cache), return all fresh entries
 - Parse the cached feed, extract all entry `<link rel="alternate" href>` URL values into a Set — use this URL as the stable key, not GitHub's tag URI `<id>` (e.g. `tag:github.com,2008:Repository/...`), which is not a plain URL; return only entries whose link URL is not present in the cached Set
 - Write Vitest unit tests: no cached feed returns all entries; all entries already in cache returns empty array; partial overlap returns only new entries
 
 **2.6 — Worker route: `/feed/:config`**
+
 - First operation in the handler: decode and `v.safeParse` the config token against `FeedConfigSchema`; return HTTP 400 with a JSON error body on failure — no other processing occurs
 - Wire up feed generation for valid configs
 - Implement caching with the Cloudflare Cache API
@@ -190,6 +203,7 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - Write Vitest integration tests for each response path: valid config produces Atom output; malformed base64url returns 400; structurally valid JSON that fails schema constraints returns 400; rate limit 429 returns cached feed; no cache + GitHub down returns 503
 
 **2.7 — Worker routes: `/api/*`**
+
 - All handlers validate URL parameters and query strings with `v.safeParse` using the schemas defined in 2.1 as the very first operation — before any cache lookup, GitHub call, or other logic; invalid input returns HTTP 400 immediately
 - Implement `/api/topics/featured` — proxy + cache 24 hours; no user input to validate
 - Implement `/api/topics/validate` — validate `q` query param against `TopicSlugSchema`; proxy + cache 1 hour; return `{ exists: boolean, name: string | null }`
@@ -199,6 +213,7 @@ Before writing any production Worker code, confirm both key dependencies bundle 
 - Write Vitest integration tests for each route: valid inputs with mocked GitHub responses; invalid inputs (bad username patterns, bad topic slugs, path traversal attempts) return 400 before any GitHub call is made
 
 **2.8 — Security headers**
+
 - Add middleware to Hono that attaches security headers to all responses:
   - `Content-Security-Policy` (restrictive; relax as frontend needs dictate)
   - `X-Content-Type-Options: nosniff`
@@ -234,18 +249,21 @@ Before writing a single component, read and apply the [Anthropic Frontend Design
 This task gates all component implementation. Do not begin task 3.2 until the design direction is locked and tokens are defined.
 
 **3.2 — Layout & landing page**
+
 - Implement the single-column page shell: `<header>`, `<main>`, `<footer>`
 - Implement the landing page state: headline, brief description, "Create feed" `<button>`
 - No mode selection is visible until "Create feed" is clicked
 - Playwright E2E test: landing page renders; "Create feed" button is present and focusable
 
 **3.3 — Mode selection**
+
 - Implement the two option cards: "Feed by topic" and "Feed by stars"
 - Each card is a `<button>` (not a styled `<div>`) — keyboard accessible and correctly announced by screen readers
 - Selecting a card reveals the appropriate subsequent step
 - Playwright E2E test: clicking each card reveals the correct next step; cards are keyboard navigable
 
 **3.4 — Featured topics checkbox grid (REQ-001)**
+
 - Fetch `/api/topics/featured` on component mount
 - Render as a grid of `<input type="checkbox">` elements with associated `<label>` elements
 - Loading state: spinner within the grid container
@@ -254,6 +272,7 @@ This task gates all component implementation. Do not begin task 3.2 until the de
 - Playwright + axe-core test: grid is accessible; limit enforcement works; labels are associated
 
 **3.5 — Custom topic input (REQ-008)**
+
 - Implement the validate-and-add field
 - Debounce API calls at 400–500ms
 - Loading indicator within the field while the lookup is in progress
@@ -264,6 +283,7 @@ This task gates all component implementation. Do not begin task 3.2 until the de
 - Playwright E2E test: debounce timing; valid topic enables button; invalid topic shows error; duplicate is rejected; tag removal works
 
 **3.6 — GitHub username input (REQ-002 + REQ-009)**
+
 - Implement the username input with the same debounced validation pattern
 - On valid username: fetch `/api/starred/{username}` and render the starred repos list (REQ-009)
 - Error states: username not found; user has no public starred repos (block progression, show message)
@@ -271,12 +291,14 @@ This task gates all component implementation. Do not begin task 3.2 until the de
 - Playwright E2E test: empty username shows no error; invalid username shows error after debounce; valid username with stars shows list; "Load more" appends without losing selections; cap enforcement works
 
 **3.7 — Activity type & TTL selectors (REQ-003 + REQ-004)**
+
 - Implement activity type selector using native `<select>` or `<fieldset>` with `<input type="radio">` elements
 - Implement TTL selector using native `<select>`
 - Both are revealed only after the preceding step is complete
 - Activity type filtering including "all activity" is confirmed feasible for topic feeds on the Workers Paid plan (OQ-4 resolved) — implement all options without restriction
 
 **3.8 — Feed URL display & copy button (REQ-010)**
+
 - On successful feed config submission, call `encodeFeedConfig` client-side and construct the feed URL
 - Display the URL using the element type determined in the technical specification (likely `<a>`)
 - Copy button uses `navigator.clipboard.writeText`; label changes to "Copied!" for 2 seconds on success; reverts automatically
@@ -284,12 +306,14 @@ This task gates all component implementation. Do not begin task 3.2 until the de
 - Playwright E2E test: URL is generated correctly; copy button changes label on click; URL is accessible by keyboard
 
 **3.9 — Error states & edge cases**
+
 - GitHub API unavailable: user-facing message, no broken UI
 - Feed generation failure: error message in place of URL, no dead end
 - Malformed feed URL accessed directly: HTTP 400 page, human-readable, not a blank screen
 - Playwright E2E tests for each error path using mocked Worker responses
 
 **3.10 — Accessibility audit**
+
 - Manual keyboard navigation test of the full topic flow and starred repo flow
 - VoiceOver (macOS) test of both flows
 - Resolve any issues before Phase 3 gate
@@ -316,6 +340,7 @@ This task is included here as a reminder to review it against the full acceptanc
 Review the URL display element choice against the decision documented in the technical specification. Confirm the implementation matches the documented rationale.
 
 **4.3 — Sentry & Umami activation**
+
 - Configure Sentry DSN for the production environment; confirm errors are captured and source maps resolve correctly in the Sentry dashboard
 - Configure Umami for the production URL; confirm the five defined events are tracked correctly
 
@@ -334,6 +359,7 @@ Review the URL display element choice against the decision documented in the tec
 ### Tasks
 
 **5.1 — Production deployment**
+
 - Confirm the Cloudflare account is on the **Workers Paid plan ($5/month)** — this is a hard requirement, not optional. The Workers Free plan's 50-subrequest limit per invocation is insufficient for topic feed fan-out (worst case 125 calls). The paid plan provides 10,000 subrequests per invocation.
 - Deploy Worker via `wrangler deploy` against the production environment
 - Confirm Cloudflare Pages production deployment is live
@@ -341,16 +367,19 @@ Review the URL display element choice against the decision documented in the tec
 - Confirm the GitHub PAT is set as a Worker secret in the production environment
 
 **5.2 — Smoke testing**
+
 - Generate a topic feed URL manually and subscribe in NetNewsWire, Reeder, or Feedbin
 - Confirm the feed validates at the W3C Feed Validation Service (manual check)
 - Confirm entries appear correctly in the feed reader
 - Generate a starred repo feed URL and repeat
 
 **5.3 — Share for feedback**
+
 - Share with a small set of trusted users (not a public announcement)
 - Collect feedback on: topic cap (is 5 enough?), starred repo cap (is 25 enough?), activity type options, TTL options, feed content quality
 
 **5.4 — Metrics baseline**
+
 - Record baseline values for all success metrics defined in the PRD:
   - Unique feed URLs generated
   - Feeds still active after 7 days (early signal)
@@ -372,6 +401,7 @@ Review the URL display element choice against the decision documented in the tec
 ### Tasks
 
 **6.1 — Pre-launch checklist**
+
 - All P0 and P1 acceptance criteria pass
 - Zero critical axe-core violations
 - Feed validates against W3C validator (manual)
@@ -380,10 +410,12 @@ Review the URL display element choice against the decision documented in the tec
 - `<meta name="description">` is accurate and descriptive
 
 **6.2 — Blog post**
+
 - Write a post for schalkneethling.com covering: what the problem is, how OSSReleaseFeed solves it, how to use it, and what is planned next
 - Include at least one shareable topic feed URL and one example starred repo feed URL as demonstrations
 
 **6.3 — Announcement**
+
 - Share the blog post and the tool URL on Mastodon and any relevant developer communities
 - Monitor Umami for traffic spikes; monitor Sentry for error rate increases; monitor Cloudflare analytics for rate limit headroom
 
@@ -406,6 +438,7 @@ Review the URL display element choice against the decision documented in the tec
 Review Phase 5 and 6 metrics. If sustained user interest is not demonstrated (fewer than 40% of generated feeds still active at 30 days), reconsider the investment before building REQ-013.
 
 **7.2 — JSON Feed serialisation**
+
 - Add `format: "json"` to the `FeedConfig` type (already included in the data model)
 - JSON Feed is produced by calling `feed.json1()` on the existing `Feed` instance returned by `buildFeed()` — no separate serialisation function is required; the `feed` package handles the full JSON Feed 1.1 spec
 - Serve with `Content-Type: application/feed+json; charset=utf-8`
@@ -413,6 +446,7 @@ Review Phase 5 and 6 metrics. If sustained user interest is not demonstrated (fe
 - Validate output against [validator.jsonfeed.org](https://validator.jsonfeed.org) (manual check) and write an equivalent integration test
 
 **7.3 — UI format selector**
+
 - Add format selector to the builder UI before the URL is generated
 - Default: Atom. Options: Atom, JSON Feed.
 
@@ -453,9 +487,9 @@ A task is done when:
 
 ## Revision History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2026-02-28 | Schalk Neethling | Initial draft |
-| 1.1 | 2026-03-01 | Schalk Neethling | All OQs pre-resolved: Phase 0 tasks 0.2–0.5 marked RESOLVED; Phase 0 reduced to single spike validation task (0.6 — @octokit/rest dry-run). Phase 2.2 updated with @octokit/rest requirement, module-scope instantiation prohibition, and rate limit header approach. Phase 2.4 corrected to use `<link rel="alternate" href>` not tag URI `<id>` as diffing key. Phase 2 gate updated. Phase 3.7 conditional replaced with confirmed decision. Phase 5.1 Workers Paid plan requirement added. Phase 7.2 generateJSONFeed replaced with feed.json1() call. Informed-by version updated to Technical Specification v1.2. |
-| 1.2 | 2026-03-01 | Schalk Neethling | Phase 0 removed as a separate phase. Resolved OQs moved to a Pre-Implementation preamble. Spike task moved to Phase 2.1 (post-scaffolding, inside real project). Phase 2 tasks renumbered 2.2–2.8. |
-| 1.3 | 2026-03-02 | Schalk Neethling | Adopted Effect (`effect` package). Task 2.1 spike extended to cover Effect bundle validation, `sValidator` integration, and per-request Layer pattern. Task 2.2 updated from Valibot to Effect Schema API. Task 2.3 updated to Effect service pattern (`Context.Tag`, typed errors, `Data.TaggedError`, per-request Layer construction). Task 2.4 updated to reference Effect schema. Phase 2 gate updated. Informed-by version updated to Technical Specification v1.3. |
+| Version | Date       | Author           | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------- | ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.0     | 2026-02-28 | Schalk Neethling | Initial draft                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 1.1     | 2026-03-01 | Schalk Neethling | All OQs pre-resolved: Phase 0 tasks 0.2–0.5 marked RESOLVED; Phase 0 reduced to single spike validation task (0.6 — @octokit/rest dry-run). Phase 2.2 updated with @octokit/rest requirement, module-scope instantiation prohibition, and rate limit header approach. Phase 2.4 corrected to use `<link rel="alternate" href>` not tag URI `<id>` as diffing key. Phase 2 gate updated. Phase 3.7 conditional replaced with confirmed decision. Phase 5.1 Workers Paid plan requirement added. Phase 7.2 generateJSONFeed replaced with feed.json1() call. Informed-by version updated to Technical Specification v1.2. |
+| 1.2     | 2026-03-01 | Schalk Neethling | Phase 0 removed as a separate phase. Resolved OQs moved to a Pre-Implementation preamble. Spike task moved to Phase 2.1 (post-scaffolding, inside real project). Phase 2 tasks renumbered 2.2–2.8.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 1.3     | 2026-03-02 | Schalk Neethling | Adopted Effect (`effect` package). Task 2.1 spike extended to cover Effect bundle validation, `sValidator` integration, and per-request Layer pattern. Task 2.2 updated from Valibot to Effect Schema API. Task 2.3 updated to Effect service pattern (`Context.Tag`, typed errors, `Data.TaggedError`, per-request Layer construction). Task 2.4 updated to reference Effect schema. Phase 2 gate updated. Informed-by version updated to Technical Specification v1.3.                                                                                                                                                |
