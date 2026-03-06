@@ -1,9 +1,20 @@
 {
   "extends": ["stylelint-config-standard"],
-  "plugins": ["stylelint-plugin-logical-css", "stylelint-selector-bem-pattern", "stylelint-order"],
+  "plugins": [
+    "stylelint-plugin-logical-css",
+    "stylelint-plugin-use-baseline",
+    "stylelint-selector-bem-pattern",
+    "stylelint-order"
+  ],
   "rules": {
     "media-feature-range-notation": "context",
     "order/properties-alphabetical-order": true,
+    "plugin/use-baseline": [
+      true,
+      {
+        "available": 2025
+      }
+    ],
     "plugin/use-logical-properties-and-values": true,
     "plugin/use-logical-units": true,
     "plugin/selector-bem-pattern": {
