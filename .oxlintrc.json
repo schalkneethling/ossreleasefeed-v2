@@ -1,6 +1,15 @@
 {
   "$schema": "https://oxc.rs/schema.json",
-  "plugins": ["typescript", "react", "jsx-a11y", "import"],
+  "plugins": [
+    "typescript",
+    "react",
+    "jsx-a11y",
+    "import",
+    "react-perf",
+    "node",
+    "promise",
+    "vitest"
+  ],
   "rules": {
     "no-console": "warn"
   }
