@@ -7,7 +7,7 @@ export default defineConfig({
     {
       name: "desktop",
       use: {
-        viewport: { width: 1140, height: 900 },
+        viewport: { width: 1440, height: 900 },
       },
     },
     {
