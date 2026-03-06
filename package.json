@@ -24,7 +24,7 @@
     "@axe-core/playwright": "^4.10.2",
     "@cloudflare/workers-types": "^4.20260214.0",
     "@types/node": "^22.15.0",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "^4.0.18",
     "msw": "^2.10.5",
     "oxfmt": "^0.36.0",
     "oxlint": "^1.14.0",
