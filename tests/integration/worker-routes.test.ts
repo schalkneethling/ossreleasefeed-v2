@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { app } from "../../worker/src/index";
 import { encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
+import { encodeRawConfig } from "../helpers";
 import { server } from "./setup";
 
 const env = {
@@ -16,9 +17,6 @@ const executionContext = {
 } as ExecutionContext;
 
 const fetchApp = (url: string) => app.fetch(new Request(url), env, executionContext);
-
-const encodeRawConfig = (value: unknown): string =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
 
 const atomFixture = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -222,7 +220,8 @@ describe("GET /feed/:config", () => {
 
   it(
     "serves the cached snapshot with Retry-After when GitHub rate limits",
-    { timeout: 15_000 },
+    // The mocked retry-after of 1s is retried twice, so this path takes ~2s.
+    { timeout: 6_000 },
     async () => {
       const cache = installFakeCache();
 

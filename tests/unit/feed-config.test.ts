@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { decodeFeedConfig, encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
-
-const encodeRawConfig = (value: unknown): string =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
+import { encodeRawConfig } from "../helpers";
 
 describe("feed config encoding", () => {
   it("round-trips a valid topic config", () => {
