@@ -49,6 +49,9 @@ bun.lockb
 # Cloudflare
 .wrangler
 
+# TokenSave MCP local state
+.tokensave/
+
 # Env files
 .env
 .env.*

@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 import { getCache } from "../lib/cache";
 import { unavailableFromGitHub, validationHook } from "../lib/http";
+import { runEffect } from "../lib/run";
 import { GithubUsernameSchema } from "../lib/schemas";
 import type { AppEnv } from "../lib/types";
 import { GitHubClient } from "../github/client";
@@ -28,7 +29,7 @@ usersRoutes.get(
     let result;
 
     try {
-      result = await Effect.runPromise(
+      result = await runEffect(
         Effect.flatMap(GitHubClient, (client) => client.validateUsername(username)).pipe(
           Effect.provide(ctx.var.githubLayer),
         ),
