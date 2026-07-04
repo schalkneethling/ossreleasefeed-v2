@@ -4,6 +4,25 @@ const parseDetail = (error: unknown): string => {
   if (
     error &&
     typeof error === "object" &&
+    "issues" in error &&
+    Array.isArray(error.issues) &&
+    error.issues.length > 0
+  ) {
+    const [firstIssue] = error.issues;
+
+    if (
+      firstIssue &&
+      typeof firstIssue === "object" &&
+      "message" in firstIssue &&
+      typeof firstIssue.message === "string"
+    ) {
+      return firstIssue.message;
+    }
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
     "message" in error &&
     typeof error.message === "string"
   ) {
@@ -33,12 +52,40 @@ export const invalidFeedConfig = (ctx: Context, detail: unknown) => {
   );
 };
 
+export const unavailableFromGitHub = (ctx: Context, error: unknown) => {
+  if (
+    error &&
+    typeof error === "object" &&
+    "_tag" in error &&
+    error._tag === "GitHubRateLimitError" &&
+    "retryAfter" in error &&
+    typeof error.retryAfter === "number"
+  ) {
+    return ctx.json(
+      {
+        error: "GitHub temporarily unavailable",
+      },
+      503,
+      {
+        "Retry-After": String(error.retryAfter),
+      },
+    );
+  }
+
+  return ctx.json(
+    {
+      error: "GitHub temporarily unavailable",
+    },
+    503,
+  );
+};
+
 export const validationHook = <T>(
-  result: { success: boolean; issues?: unknown; output?: T },
+  result: { success: boolean; error?: unknown; data?: T },
   ctx: Context,
 ) => {
   if (!result.success) {
-    return invalidRequest(ctx, result.issues);
+    return invalidRequest(ctx, result.error);
   }
 
   return undefined;

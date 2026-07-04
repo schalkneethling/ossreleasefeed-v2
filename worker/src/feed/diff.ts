@@ -6,9 +6,15 @@ export const diffFeed = (cachedFeed: string | null, freshEntries: FeedEntry[]): 
     return freshEntries;
   }
 
-  const existingLinks = new Set(
-    parseCachedFeed(cachedFeed, "cached-feed").map((entry) => entry.link),
-  );
+  let existingEntries: FeedEntry[] = [];
+
+  try {
+    existingEntries = parseCachedFeed(cachedFeed, "cached-feed");
+  } catch {
+    return freshEntries;
+  }
+
+  const existingLinks = new Set(existingEntries.map((entry) => entry.link));
 
   return freshEntries.filter((entry) => !existingLinks.has(entry.link));
 };

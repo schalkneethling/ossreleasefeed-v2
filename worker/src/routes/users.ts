@@ -2,7 +2,7 @@ import { sValidator } from "@hono/standard-validator";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 import { getCache } from "../lib/cache";
-import { validationHook } from "../lib/http";
+import { unavailableFromGitHub, validationHook } from "../lib/http";
 import { GithubUsernameSchema } from "../lib/schemas";
 import type { AppEnv } from "../lib/types";
 import { GitHubClient } from "../github/client";
@@ -25,11 +25,17 @@ usersRoutes.get(
     }
 
     const { username } = ctx.req.valid("param");
-    const result = await Effect.runPromise(
-      Effect.flatMap(GitHubClient, (client) => client.validateUsername(username)).pipe(
-        Effect.provide(ctx.var.githubLayer),
-      ),
-    );
+    let result;
+
+    try {
+      result = await Effect.runPromise(
+        Effect.flatMap(GitHubClient, (client) => client.validateUsername(username)).pipe(
+          Effect.provide(ctx.var.githubLayer),
+        ),
+      );
+    } catch (error) {
+      return unavailableFromGitHub(ctx, error);
+    }
     const response = ctx.json(
       {
         exists: result.exists,

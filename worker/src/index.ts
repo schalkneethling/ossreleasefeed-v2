@@ -22,13 +22,16 @@ app.use("*", async (ctx, next) => {
 app.use("*", async (ctx, next) => {
   await next();
 
-  ctx.res.headers.set(
+  const response = new Response(ctx.res.body, ctx.res);
+
+  response.headers.set(
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self' https://cloud.umami.is",
   );
-  ctx.res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
-  ctx.res.headers.set("X-Content-Type-Options", "nosniff");
-  ctx.res.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  ctx.res = response;
 });
 
 app.route("/feed", feedRoutes);

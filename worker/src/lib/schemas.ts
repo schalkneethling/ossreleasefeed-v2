@@ -2,8 +2,9 @@ import { Schema } from "effect";
 
 const isUrl = (value: string): boolean => {
   try {
-    new URL(value);
-    return true;
+    const url = new URL(value);
+
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }

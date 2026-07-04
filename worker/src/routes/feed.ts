@@ -11,6 +11,7 @@ import { invalidFeedConfig } from "../lib/http";
 import type { AppEnv } from "../lib/types";
 
 const cacheHeader = (ttl: number) => `public, max-age=${Math.max(ttl, 3600)}`;
+const MAX_FEED_ENTRIES = 250;
 
 const renderFeed = (body: string, ttl: number, format: "atom" | "json", retryAfter?: number) =>
   new Response(body, {
@@ -25,6 +26,18 @@ const renderFeed = (body: string, ttl: number, format: "atom" | "json", retryAft
   });
 
 export const feedRoutes = new Hono<AppEnv>();
+
+const buildSerializedFeed = (
+  config: AppEnv["Bindings"] extends never ? never : Parameters<typeof buildFeed>[0],
+  entries: Parameters<typeof buildFeed>[1],
+  url: string,
+  appName: string,
+  format: "atom" | "json",
+) => {
+  const feed = buildFeed(config, entries, url, appName);
+
+  return format === "json" ? feed.json1() : feed.atom1();
+};
 
 feedRoutes.get("/:config", async (ctx) => {
   const decoded = decodeFeedConfig(ctx.req.param("config"));
@@ -45,6 +58,15 @@ feedRoutes.get("/:config", async (ctx) => {
   const snapshotRequest = createSnapshotRequest(request);
   const previousSnapshot = await cache?.match(snapshotRequest);
   const previousFeedText = previousSnapshot ? await previousSnapshot.text() : null;
+  let previousEntries = [] as ReturnType<typeof parseCachedFeed>;
+
+  if (previousFeedText) {
+    try {
+      previousEntries = parseCachedFeed(previousFeedText, request.url);
+    } catch {
+      previousEntries = [];
+    }
+  }
 
   try {
     const freshEntries = await Effect.runPromise(
@@ -53,19 +75,37 @@ feedRoutes.get("/:config", async (ctx) => {
     const newEntries = diffFeed(previousFeedText, freshEntries);
 
     if (previousFeedText && newEntries.length === 0) {
-      const unchanged = renderFeed(previousFeedText, config.ttl, config.format);
+      const body = buildSerializedFeed(
+        config,
+        previousEntries,
+        request.url,
+        ctx.env.APP_NAME,
+        config.format,
+      );
+      const unchanged = renderFeed(body, config.ttl, config.format);
 
       await cache?.put(request, unchanged.clone());
 
       return unchanged;
     }
 
-    const previousEntries = previousFeedText ? parseCachedFeed(previousFeedText, request.url) : [];
-    const mergedEntries = mergeEntries(freshEntries, previousEntries);
-    const feed = buildFeed(config, mergedEntries, request.url, ctx.env.APP_NAME);
-    const body = config.format === "json" ? feed.json1() : feed.atom1();
+    const mergedEntries = mergeEntries(freshEntries, previousEntries).slice(0, MAX_FEED_ENTRIES);
+    const body = buildSerializedFeed(
+      config,
+      mergedEntries,
+      request.url,
+      ctx.env.APP_NAME,
+      config.format,
+    );
+    const snapshotBody = buildSerializedFeed(
+      { ...config, format: "atom" },
+      mergedEntries,
+      request.url,
+      ctx.env.APP_NAME,
+      "atom",
+    );
     const response = renderFeed(body, config.ttl, config.format);
-    const snapshotResponse = renderFeed(body, 60 * 60 * 24 * 7, config.format);
+    const snapshotResponse = renderFeed(snapshotBody, 60 * 60 * 24 * 7, "atom");
 
     await cache?.put(request, response.clone());
     await cache?.put(snapshotRequest, snapshotResponse.clone());
@@ -73,7 +113,15 @@ feedRoutes.get("/:config", async (ctx) => {
     return response;
   } catch (error) {
     if (error instanceof GitHubRateLimitError && previousFeedText) {
-      return renderFeed(previousFeedText, config.ttl, config.format, error.retryAfter);
+      const body = buildSerializedFeed(
+        config,
+        previousEntries,
+        request.url,
+        ctx.env.APP_NAME,
+        config.format,
+      );
+
+      return renderFeed(body, config.ttl, config.format, error.retryAfter);
     }
 
     return ctx.json(

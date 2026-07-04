@@ -1,9 +1,9 @@
 import { sValidator } from "@hono/standard-validator";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
-import { GitHubNotFoundError } from "../lib/errors";
+import { GitHubNotFoundError, GitHubRateLimitError } from "../lib/errors";
 import { getCache } from "../lib/cache";
-import { validationHook } from "../lib/http";
+import { unavailableFromGitHub, validationHook } from "../lib/http";
 import { GithubUsernameSchema } from "../lib/schemas";
 import type { AppEnv } from "../lib/types";
 import { GitHubClient } from "../github/client";
@@ -48,6 +48,10 @@ starredRoutes.get(
           },
           404,
         );
+      }
+
+      if (error instanceof GitHubRateLimitError) {
+        return unavailableFromGitHub(ctx, error);
       }
 
       throw error;

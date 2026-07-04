@@ -58,6 +58,8 @@ export const decodeFeedConfig = (token: string) => {
 
     return Schema.decodeUnknownEither(FeedConfigSchema)(parsed);
   } catch (error) {
-    return Either.left(error);
+    return Either.left(
+      error instanceof Error ? error : new Error("Invalid feed configuration encoding"),
+    );
   }
 };

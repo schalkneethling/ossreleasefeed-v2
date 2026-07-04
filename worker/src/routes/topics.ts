@@ -2,7 +2,7 @@ import { sValidator } from "@hono/standard-validator";
 import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 import { getCache } from "../lib/cache";
-import { validationHook } from "../lib/http";
+import { unavailableFromGitHub, validationHook } from "../lib/http";
 import type { AppEnv } from "../lib/types";
 import { TopicSlugSchema } from "../lib/schemas";
 import { GitHubClient } from "../github/client";
@@ -17,11 +17,17 @@ topicsRoutes.get("/featured", async (ctx) => {
     return cached;
   }
 
-  const topics = await Effect.runPromise(
-    Effect.flatMap(GitHubClient, (client) => client.getFeaturedTopics()).pipe(
-      Effect.provide(ctx.var.githubLayer),
-    ),
-  );
+  let topics;
+
+  try {
+    topics = await Effect.runPromise(
+      Effect.flatMap(GitHubClient, (client) => client.getFeaturedTopics()).pipe(
+        Effect.provide(ctx.var.githubLayer),
+      ),
+    );
+  } catch (error) {
+    return unavailableFromGitHub(ctx, error);
+  }
 
   const response = ctx.json(topics, 200, {
     "Cache-Control": "public, max-age=86400",
@@ -48,11 +54,17 @@ topicsRoutes.get(
     }
 
     const { q } = ctx.req.valid("query");
-    const exists = await Effect.runPromise(
-      Effect.flatMap(GitHubClient, (client) => client.validateTopic(q)).pipe(
-        Effect.provide(ctx.var.githubLayer),
-      ),
-    );
+    let exists;
+
+    try {
+      exists = await Effect.runPromise(
+        Effect.flatMap(GitHubClient, (client) => client.validateTopic(q)).pipe(
+          Effect.provide(ctx.var.githubLayer),
+        ),
+      );
+    } catch (error) {
+      return unavailableFromGitHub(ctx, error);
+    }
     const response = ctx.json(
       {
         exists,

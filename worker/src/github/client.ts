@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { Context, Effect, Either, Layer, Schedule } from "effect";
+import { Context, Duration, Effect, Either, Layer } from "effect";
 import {
   FeedParseError,
   GitHubNetworkError,
@@ -18,9 +18,19 @@ import {
 import { Schema } from "effect";
 import { parseGitHubReleaseAtom } from "../feed/xml";
 
-const retrySchedule = Schedule.recurs(2).pipe(
-  Schedule.whileInput((error: unknown) => error instanceof GitHubRateLimitError),
-);
+const retryRateLimited = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  remaining = 2,
+): Effect.Effect<A, E, R> =>
+  Effect.catchAll(effect, (error) => {
+    if (error instanceof GitHubRateLimitError && remaining > 0) {
+      return Effect.sleep(Duration.seconds(error.retryAfter)).pipe(
+        Effect.zipRight(retryRateLimited(effect, remaining - 1)),
+      ) as Effect.Effect<A, E, R>;
+    }
+
+    return Effect.fail(error as E);
+  });
 
 const parseWithSchema =
   <A, I>(schema: Schema.Schema<A, I>) =>
@@ -93,7 +103,10 @@ export interface GitHubClientService {
   ) => Effect.Effect<boolean, GitHubRateLimitError | GitHubNetworkError | GitHubNotFoundError>;
   readonly validateUsername: (
     username: string,
-  ) => Effect.Effect<{ exists: boolean; hasStars: boolean }, GitHubNetworkError>;
+  ) => Effect.Effect<
+    { exists: boolean; hasStars: boolean },
+    GitHubRateLimitError | GitHubNetworkError
+  >;
   readonly getStarredRepos: (
     username: string,
   ) => Effect.Effect<Repo[], GitHubRateLimitError | GitHubNotFoundError | GitHubNetworkError>;
@@ -131,6 +144,7 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
     }).pipe(
       Effect.flatMap((response) => parseWithSchema(TopicSearchResponseSchema)(response.data)),
       Effect.map((payload) => [...payload.items]),
+      retryRateLimited,
     ),
   validateTopic: (slug) =>
     Effect.tryPromise({
@@ -143,6 +157,7 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
     }).pipe(
       Effect.flatMap((response) => parseWithSchema(TopicSearchResponseSchema)(response.data)),
       Effect.map((payload) => payload.items.some((item) => item.name === slug)),
+      retryRateLimited,
     ),
   validateUsername: (username) =>
     Effect.tryPromise({
@@ -166,19 +181,30 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
           hasStars: false,
         }),
       ),
-      Effect.mapError((error) =>
-        error instanceof GitHubNetworkError ? error : new GitHubNetworkError({ cause: error }),
-      ),
     ),
   getStarredRepos: (username) =>
     Effect.tryPromise({
       try: async () => {
-        const response = await octokit.paginate(octokit.rest.activity.listReposStarredByUser, {
-          username,
-          per_page: 100,
-        });
+        let count = 0;
 
-        return response.slice(0, 100);
+        const response = await octokit.paginate(
+          octokit.rest.activity.listReposStarredByUser,
+          {
+            username,
+            per_page: 100,
+          },
+          (page, done) => {
+            count += page.data.length;
+
+            if (count >= 100) {
+              done();
+            }
+
+            return page.data;
+          },
+        );
+
+        return response;
       },
       catch: (error) => mapGitHubError(error, `starred:${username}`),
     }).pipe(
@@ -188,7 +214,7 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
           { concurrency: 20 },
         ),
       ),
-      Effect.retry(retrySchedule),
+      retryRateLimited,
     ),
   searchRepositoriesByTopics: (topics, operator) =>
     Effect.tryPromise({
@@ -233,16 +259,34 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
 
         return [...deduped.values()].slice(0, 25);
       }),
+      retryRateLimited,
     ),
   getRepoReleases: (owner, repo) =>
     Effect.tryPromise({
       try: async () => {
         const url = `https://github.com/${owner}/${repo}/releases.atom`;
-        const response = await fetch(url, {
-          headers: {
-            "user-agent": "ossreleasefeed",
-          },
-        });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        let response: Response;
+
+        try {
+          response = await fetch(url, {
+            headers: {
+              "user-agent": "ossreleasefeed",
+            },
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") {
+            throw new GitHubNetworkError({
+              cause: new Error(`Timed out fetching ${url}`),
+            });
+          }
+
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
 
         if (response.status === 404) {
           throw new GitHubNotFoundError({ resource: `${owner}/${repo}` });
@@ -289,7 +333,7 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
                 }),
         }),
       ),
-      Effect.retry(retrySchedule),
+      retryRateLimited,
     ),
   getRepoIssues: (owner, repo) =>
     Effect.tryPromise({
@@ -323,7 +367,7 @@ export const makeGitHubClient = (octokit: Octokit): GitHubClientService => ({
 
         return issues.map((issue) => mapIssueEntry(repoData, issue));
       }),
-      Effect.retry(retrySchedule),
+      retryRateLimited,
     ),
 });
 
