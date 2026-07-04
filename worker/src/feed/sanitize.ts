@@ -28,6 +28,7 @@ const ALLOWED_ATTRIBUTES = new Map<string, Set<string>>([
 
 const URL_ATTRIBUTES = new Set(["action", "formaction", "href", "poster", "src"]);
 const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+const DANGEROUS_TAGS = new Set(["embed", "form", "iframe", "object", "script", "style"]);
 
 const isSafeUrl = (value: string): boolean => {
   if (
@@ -60,7 +61,11 @@ export const sanitiseHtml = async (html: string): Promise<string> => {
     .on("*", {
       element(element) {
         if (!ALLOWED_TAGS.has(element.tagName)) {
-          element.remove();
+          if (DANGEROUS_TAGS.has(element.tagName)) {
+            element.remove();
+          } else {
+            element.removeAndKeepContent();
+          }
           return;
         }
 

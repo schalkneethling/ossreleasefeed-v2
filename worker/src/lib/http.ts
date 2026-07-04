@@ -1,6 +1,19 @@
 import type { Context } from "hono";
 
 const parseDetail = (error: unknown): string => {
+  if (Array.isArray(error) && error.length > 0) {
+    const [firstIssue] = error;
+
+    if (
+      firstIssue &&
+      typeof firstIssue === "object" &&
+      "message" in firstIssue &&
+      typeof firstIssue.message === "string"
+    ) {
+      return firstIssue.message;
+    }
+  }
+
   if (
     error &&
     typeof error === "object" &&
@@ -53,30 +66,22 @@ export const invalidFeedConfig = (ctx: Context, detail: unknown) => {
 };
 
 export const unavailableFromGitHub = (ctx: Context, error: unknown) => {
-  if (
+  const headers =
     error &&
     typeof error === "object" &&
     "_tag" in error &&
     error._tag === "GitHubRateLimitError" &&
     "retryAfter" in error &&
     typeof error.retryAfter === "number"
-  ) {
-    return ctx.json(
-      {
-        error: "GitHub temporarily unavailable",
-      },
-      503,
-      {
-        "Retry-After": String(error.retryAfter),
-      },
-    );
-  }
+      ? { "Retry-After": String(error.retryAfter) }
+      : undefined;
 
   return ctx.json(
     {
       error: "GitHub temporarily unavailable",
     },
     503,
+    headers,
   );
 };
 
