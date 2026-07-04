@@ -29,7 +29,7 @@
     "oxfmt": "^0.36.0",
     "oxlint": "^1.14.0",
     "playwright": "^1.56.1",
-    "stylelint": "^16.25.0",
+    "stylelint": "^17.14.0",
     "stylelint-config-standard": "^39.0.1",
     "stylelint-order": "^7.0.0",
     "stylelint-plugin-logical-css": "^1.2.3",
