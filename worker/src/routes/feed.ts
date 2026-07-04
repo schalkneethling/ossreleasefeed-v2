@@ -1,5 +1,6 @@
 import { Either, Effect } from "effect";
 import { Hono } from "hono";
+import { runEffect } from "../lib/run";
 import { buildFeed, mergeEntries } from "../feed/build";
 import { diffFeed } from "../feed/diff";
 import { generateFeedEntries } from "../feed/generate";
@@ -69,7 +70,7 @@ feedRoutes.get("/:config", async (ctx) => {
   }
 
   try {
-    const freshEntries = await Effect.runPromise(
+    const freshEntries = await runEffect(
       generateFeedEntries(config).pipe(Effect.provide(ctx.var.githubLayer)),
     );
     const newEntries = diffFeed(previousFeedText, freshEntries);

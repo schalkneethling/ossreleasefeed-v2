@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { GitHubNotFoundError, GitHubRateLimitError } from "../lib/errors";
 import { getCache } from "../lib/cache";
 import { unavailableFromGitHub, validationHook } from "../lib/http";
+import { runEffect } from "../lib/run";
 import { GithubUsernameSchema } from "../lib/schemas";
 import type { AppEnv } from "../lib/types";
 import { GitHubClient } from "../github/client";
@@ -28,7 +29,7 @@ starredRoutes.get(
     const { username } = ctx.req.valid("param");
 
     try {
-      const repos = await Effect.runPromise(
+      const repos = await runEffect(
         Effect.flatMap(GitHubClient, (client) => client.getStarredRepos(username)).pipe(
           Effect.provide(ctx.var.githubLayer),
         ),

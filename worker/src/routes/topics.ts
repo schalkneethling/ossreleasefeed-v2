@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import { Hono } from "hono";
 import { getCache } from "../lib/cache";
 import { unavailableFromGitHub, validationHook } from "../lib/http";
+import { runEffect } from "../lib/run";
 import type { AppEnv } from "../lib/types";
 import { TopicSlugSchema } from "../lib/schemas";
 import { GitHubClient } from "../github/client";
@@ -20,7 +21,7 @@ topicsRoutes.get("/featured", async (ctx) => {
   let topics;
 
   try {
-    topics = await Effect.runPromise(
+    topics = await runEffect(
       Effect.flatMap(GitHubClient, (client) => client.getFeaturedTopics()).pipe(
         Effect.provide(ctx.var.githubLayer),
       ),
@@ -57,7 +58,7 @@ topicsRoutes.get(
     let exists;
 
     try {
-      exists = await Effect.runPromise(
+      exists = await runEffect(
         Effect.flatMap(GitHubClient, (client) => client.validateTopic(q)).pipe(
           Effect.provide(ctx.var.githubLayer),
         ),
