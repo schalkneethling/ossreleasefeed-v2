@@ -16,8 +16,27 @@
   margin-block: 0;
 }
 
+.builder-step {
+  border-block-start: 1px solid var(--color-border);
+  padding-block: var(--space-8);
+}
+
+.builder-step__title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-display);
+  line-height: var(--leading-tight);
+  margin-block: 0 var(--space-2);
+}
+
+.builder-step__hint {
+  color: var(--color-text-muted);
+  margin-block: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .builder {
+  .builder,
+  .builder-step {
     animation: builder-reveal var(--duration-slow) var(--ease-out);
   }
 }

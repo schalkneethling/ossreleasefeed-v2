@@ -53,7 +53,11 @@ test.describe("landing page", () => {
     // Let the reveal animation finish — axe samples computed colors, and
     // mid-fade opacity reads as a contrast failure.
     await page.evaluate(() =>
-      Promise.all(document.getAnimations().map((animation) => animation.finished)),
+      Promise.all(
+        // Cancelled animations (e.g. superseded transitions) reject their
+        // finished promise — treat those as settled.
+        document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+      ),
     );
 
     const results = await new AxeBuilder({ page }).analyze();
