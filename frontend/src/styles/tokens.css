@@ -1,12 +1,101 @@
+/*
+ * OSSReleaseFeed — design tokens
+ *
+ * Aesthetic direction: "a well-kept changelog"
+ *
+ * Tone
+ *   The calm, cool paper of a good feed reader — quiet chrome, generous
+ *   whitespace, a guided step-by-step builder rather than a form. The single
+ *   accent is RSS orange: the one true artifact of feed culture, used
+ *   sparingly but with total confidence. Cool neutrals throughout; no warm
+ *   cream, no dark-terminal cosplay.
+ *
+ * Typography
+ *   Display & UI: Bricolage Grotesque — a characterful grotesque (ink traps,
+ *   tight apertures) that carries the personality; this is the one deliberate
+ *   aesthetic risk. Data: IBM Plex Mono for everything from the subject's
+ *   world — usernames, topic slugs, owner/repo names, and the generated feed
+ *   URL, which is the product's deliverable and its signature element.
+ *
+ * Colour
+ *   Cool paper background, white surfaces, ink text. Accent has three roles:
+ *   --color-accent for graphics and focus (>= 3:1 on bg and surface),
+ *   --color-accent-strong for text (>= 4.5:1 on white and on the subtle
+ *   tint), --color-accent-subtle as a tint surface. Error and success follow
+ *   the same text-on-subtle-tint pattern. All pairs verified WCAG 2.1 AA.
+ */
+
 :root {
-  --color-bg: #f5f7fa;
+  /* Colour — neutrals */
+  --color-bg: #f2f5f7;
   --color-surface: #fff;
-  --color-text: #162032;
-  --color-border: #d6dbe6;
-  --color-accent: #0d6a56;
+  --color-text: #1a2129;
+  --color-text-muted: #526070;
+  --color-border: #d7dee5;
+  --color-border-strong: #aeb9c4;
+
+  /* Colour — accent (RSS orange) */
+  --color-accent: #e8590c;
+  --color-accent-strong: #bc4508;
+  --color-accent-deep: #9a3907;
+  --color-accent-subtle: #fdeee3;
+
+  /* Colour — semantic */
+  --color-error: #b42318;
+  --color-error-subtle: #fdecea;
+  --color-success: #166f38;
+  --color-success-subtle: #e7f5ec;
+
+  /* Typography — families */
+  --font-display: "Bricolage Grotesque Variable", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body: "Bricolage Grotesque Variable", "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+
+  /* Typography — scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-display: clamp(2rem, 1.35rem + 3vi, 3.25rem);
+
+  /* Typography — weight & leading */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-display: 700;
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-body: 1.6;
+
+  /* Spacing — quarter-rem steps */
+  --space-1: 0.25rem;
   --space-2: 0.5rem;
+  --space-3: 0.75rem;
   --space-4: 1rem;
   --space-6: 1.5rem;
-  --radius-2: 0.375rem;
-  --font-base: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", palatino, serif;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Radii */
+  --radius-1: 0.25rem;
+  --radius-2: 0.5rem;
+  --radius-3: 0.75rem;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgb(26 33 41 / 6%);
+  --shadow-2: 0 2px 8px rgb(26 33 41 / 10%);
+
+  /* Motion */
+  --duration-quick: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.25, 1);
+
+  /* Focus */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
 }
