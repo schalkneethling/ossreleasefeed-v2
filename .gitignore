@@ -43,9 +43,6 @@ test-results
 # TypeScript
 *.tsbuildinfo
 
-# Bun
-bun.lockb
-
 # Cloudflare
 .wrangler
 

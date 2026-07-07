@@ -1,23 +1,19 @@
 {
   "name": "ossreleasefeed-v2",
   "private": true,
-  "workspaces": [
-    "frontend",
-    "worker"
-  ],
   "scripts": {
-    "dev:frontend": "bun --filter frontend dev",
-    "dev:worker": "varlock run -- bun --filter worker dev",
-    "build:frontend": "bun --filter frontend build",
-    "build:worker": "bun --filter worker build",
-    "build": "bun run build:frontend && bun run build:worker",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:worker": "varlock run -- pnpm --filter worker dev",
+    "build:frontend": "pnpm --filter frontend build",
+    "build:worker": "pnpm --filter worker build",
+    "build": "pnpm run build:frontend && pnpm run build:worker",
     "typecheck": "tsc --noEmit -p frontend/tsconfig.json && tsc --noEmit -p worker/tsconfig.json",
-    "lint": "oxlint . && stylelint \"frontend/src/**/*.css\" && bun run format:check",
+    "lint": "oxlint . && stylelint \"frontend/src/**/*.css\" && pnpm run format:check",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test": "bun run test:unit && bun run test:integration",
+    "test": "pnpm run test:unit && pnpm run test:integration",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
@@ -42,5 +38,5 @@
     "varlock": "^1.10.0",
     "vitest": "^3.2.4"
   },
-  "packageManager": "bun@1.2.22"
+  "packageManager": "pnpm@11.9.0"
 }

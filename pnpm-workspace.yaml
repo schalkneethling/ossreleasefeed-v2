@@ -1,0 +1,15 @@
+packages:
+  - frontend
+  - worker
+
+allowBuilds:
+  esbuild: true
+  msw: true
+  sharp: true
+  workerd: true
+
+# varlock@1.10.0 was published 2026-07-06T23:53Z — inside pnpm 11's default
+# 24h minimumReleaseAge supply-chain window at migration time. Safe to remove
+# this exclusion any time after 2026-07-08.
+minimumReleaseAgeExclude:
+  - varlock
