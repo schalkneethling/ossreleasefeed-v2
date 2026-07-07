@@ -52,10 +52,12 @@ bun.lockb
 # TokenSave MCP local state
 .tokensave/
 
-# Env files
+# Env files (.env.schema is the committed varlock schema; values resolve
+# from 1Password and are never written to disk)
 .env
 .env.*
 !.env.example
+!.env.schema
 
 # macOS
 .DS_Store

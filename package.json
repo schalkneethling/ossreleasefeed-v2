@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev:frontend": "bun --filter frontend dev",
-    "dev:worker": "bun --filter worker dev",
+    "dev:worker": "varlock run -- bun --filter worker dev",
     "build:frontend": "bun --filter frontend build",
     "build:worker": "bun --filter worker build",
     "build": "bun run build:frontend && bun run build:worker",
@@ -25,6 +25,7 @@
     "@cloudflare/workers-types": "^4.20260214.0",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.0",
+    "@varlock/1password-plugin": "^2.0.0",
     "@vitest/coverage-v8": "^3.2.4",
     "effect": "^3.19.19",
     "msw": "^2.10.5",
@@ -38,6 +39,7 @@
     "stylelint-plugin-use-baseline": "*",
     "stylelint-selector-bem-pattern": "^4.0.1",
     "typescript": "^5.9.3",
+    "varlock": "^1.10.0",
     "vitest": "^3.2.4"
   },
   "packageManager": "bun@1.2.22"
