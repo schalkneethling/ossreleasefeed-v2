@@ -4,10 +4,10 @@ Things only you can do (accounts, secrets, dashboard config). Code-side
 wiring that depends on an item is noted inline. Items are roughly ordered;
 the first two unblock local dev, the rest unblock beta deploy (Phase 5).
 
-## 1. Local dev secrets (varlock + 1Password) — unblocks `bun run dev:worker`
+## 1. Local dev secrets (varlock + 1Password) — unblocks `pnpm run dev:worker`
 
 Varlock is already wired up: `.env.schema` (committed) resolves secrets from
-1Password at run time; nothing secret is written to disk. `bun run dev:worker`
+1Password at run time; nothing secret is written to disk. `pnpm run dev:worker`
 wraps `wrangler dev` with `varlock run` and passes `GITHUB_PAT` as a Worker
 binding.
 
@@ -22,8 +22,8 @@ binding.
       with the token in a field named `credential` (the API Credential item
       category has this field by default). The schema reference is
       `op://dev/ossreleasefeed-github-pat/credential`.
-- [ ] Verify: `bunx varlock load` from the repo root should show GITHUB_PAT
-      as resolved (redacted), then `bun run dev:worker` should start clean.
+- [ ] Verify: `pnpm exec varlock load` from the repo root should show GITHUB_PAT
+      as resolved (redacted), then `pnpm run dev:worker` should start clean.
 
 ## 2. Decide the production domain — unblocks CORS, CSP, and wrangler routes
 
@@ -43,10 +43,10 @@ Three placeholders in the codebase need the real names once decided:
 
 - [ ] Confirm the account is on **Workers Paid** ($5/mo). Hard requirement:
       topic fan-out can hit 125 subrequests; the free plan caps at 50.
-- [ ] Set the Worker's runtime secret: `cd worker && bunx wrangler secret put GITHUB_PAT`
+- [ ] Set the Worker's runtime secret: `cd worker && pnpm exec wrangler secret put GITHUB_PAT`
       (can reuse the same fine-grained PAT as local dev).
 - [ ] Create the Cloudflare Pages project (connect it to this repo,
-      build command `bun run build:frontend`, output `frontend/dist`).
+      build command `pnpm run build:frontend`, output `frontend/dist`).
 - [ ] Set Pages env var (project level, applies to previews too):
       `VITE_WORKER_URL` = the Worker's public URL (workers.dev URL is fine
       until the custom domain exists).
@@ -74,7 +74,7 @@ Three placeholders in the codebase need the real names once decided:
 
 - [ ] Create two Sentry projects (frontend React, worker Cloudflare).
 - [ ] Frontend DSN → Pages env var `VITE_SENTRY_DSN`; Worker DSN →
-      `cd worker && bunx wrangler secret put SENTRY_DSN` (DSNs are
+      `cd worker && pnpm exec wrangler secret put SENTRY_DSN` (DSNs are
       public-safe, but the secret store is the tidiest place for it).
 
 ---
