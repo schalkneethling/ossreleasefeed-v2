@@ -1,5 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { feedRoutes } from "./routes/feed";
 import { starredRoutes } from "./routes/starred";
 import { topicsRoutes } from "./routes/topics";
@@ -33,6 +34,29 @@ app.use("*", async (ctx, next) => {
   response.headers.set("X-Frame-Options", "DENY");
   ctx.res = response;
 });
+
+// TODO(schalkneethling): replace with the real production frontend origin
+// once the domain is decided — tracked in TODO.md.
+const PRODUCTION_FRONTEND_ORIGIN = "https://ossreleasefeed.example";
+const PAGES_PREVIEW_ORIGIN = /^https:\/\/[a-z0-9-]+\.ossreleasefeed\.pages\.dev$/u;
+
+// The SPA is served by Cloudflare Pages on a different origin, so the /api/*
+// routes it calls need CORS. /feed/* is consumed by feed readers, not
+// browsers, and stays CORS-free.
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) => {
+      if (origin === PRODUCTION_FRONTEND_ORIGIN || PAGES_PREVIEW_ORIGIN.test(origin)) {
+        return origin;
+      }
+
+      return null;
+    },
+    allowMethods: ["GET"],
+    maxAge: 86400,
+  }),
+);
 
 app.route("/feed", feedRoutes);
 app.route("/api/topics", topicsRoutes);

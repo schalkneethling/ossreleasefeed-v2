@@ -9,4 +9,12 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    // Local dev: API calls stay same-origin and are proxied to `wrangler dev`.
+    // Deployed builds set VITE_WORKER_URL instead (see lib/api.ts).
+    proxy: {
+      "/api": "http://localhost:8787",
+      "/feed": "http://localhost:8787",
+    },
+  },
 });

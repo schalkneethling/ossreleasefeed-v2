@@ -415,6 +415,55 @@ describe("GET /api/starred/:username", () => {
   });
 });
 
+describe("CORS", () => {
+  const topicsHandler = http.get("https://api.github.com/search/topics", () =>
+    HttpResponse.json({ items: [] }),
+  );
+
+  it("allows Pages preview origins on /api routes", async () => {
+    server.use(topicsHandler);
+
+    const origin = "https://feature-branch.ossreleasefeed.pages.dev";
+    const response = await app.fetch(
+      new Request("https://example.com/api/topics/validate?q=web-components", {
+        headers: { Origin: origin },
+      }),
+      env,
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(origin);
+  });
+
+  it("does not allow unknown origins on /api routes", async () => {
+    server.use(topicsHandler);
+
+    const response = await app.fetch(
+      new Request("https://example.com/api/topics/validate?q=web-components", {
+        headers: { Origin: "https://evil.example" },
+      }),
+      env,
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  it("does not add CORS headers to /feed routes", async () => {
+    const response = await app.fetch(
+      new Request("https://example.com/feed/not-valid", {
+        headers: { Origin: "https://feature-branch.ossreleasefeed.pages.dev" },
+      }),
+      env,
+      executionContext,
+    );
+
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});
+
 describe("security headers", () => {
   it("attaches security headers to every response", async () => {
     const response = await fetchApp("https://example.com/feed/not-valid");
