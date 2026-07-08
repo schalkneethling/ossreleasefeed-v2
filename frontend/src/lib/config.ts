@@ -19,7 +19,7 @@ export type FeedConfig =
 const encoder = new TextEncoder();
 
 const sortValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(sortValue);
+  if (Array.isArray(value)) return [...value].sort().map(sortValue);
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)

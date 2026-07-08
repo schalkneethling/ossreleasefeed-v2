@@ -4,39 +4,34 @@ import { feedUrl, validateTopic } from "../lib/api";
 import { encodeFeedConfig } from "../lib/config";
 import { MAX_TOPICS } from "../lib/constraints";
 import { FeaturedTopics } from "./FeaturedTopics";
+import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { useFocusOnMount } from "../hooks/useFocusOnMount";
 import "../styles/feed-config.css";
 import "../styles/topic-step.css";
 
 const DEBOUNCE_MS = 450;
-const COPY_RESET_MS = 2000;
 
-const TTL_OPTIONS = [
-  { label: "1 hour", value: 3600 },
-  { label: "6 hours", value: 21600 },
-  { label: "24 hours", value: 86400 },
-  { label: "1 week", value: 604800 },
-];
-
-type CustomStatus = "idle" | "loading" | "valid" | "invalid" | "duplicate";
+type CustomStatus = "idle" | "loading" | "valid" | "invalid" | "duplicate" | "error";
 
 export function TopicStep() {
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   const customInputRef = useRef<HTMLInputElement>(null);
   const feedbackId = useId();
-  const ttlId = useId();
 
   const [selectedTopics, setSelectedTopics] = useState<readonly string[]>([]);
   const [customInput, setCustomInput] = useState("");
   const [customStatus, setCustomStatus] = useState<CustomStatus>("idle");
-  const [activityType, setActivityType] = useState<"releases" | "all">("releases");
-  const [ttl, setTtl] = useState(3600);
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const debouncedCustom = useDebounce(customInput.trim(), DEBOUNCE_MS);
 
   useEffect(() => {
+    // Skip if the debounce hasn't settled — e.g. immediately after addCustomTopic clears the input
+    if (debouncedCustom !== customInput.trim()) {
+      setCustomStatus("idle");
+      return;
+    }
+
     if (!debouncedCustom) {
       setCustomStatus("idle");
       return;
@@ -53,16 +48,16 @@ export function TopicStep() {
     validateTopic(debouncedCustom, controller.signal)
       .then((valid) => setCustomStatus(valid ? "valid" : "invalid"))
       .catch(() => {
-        if (!controller.signal.aborted) setCustomStatus("idle");
+        if (!controller.signal.aborted) setCustomStatus("error");
       });
 
     return () => controller.abort();
-  }, [debouncedCustom, selectedTopics]);
+  }, [debouncedCustom, customInput, selectedTopics]);
 
-  // Clear the generated URL whenever the config changes.
+  // Clear the generated URL whenever the topic selection changes.
   useEffect(() => {
     setGeneratedUrl(null);
-  }, [selectedTopics, activityType, ttl]);
+  }, [selectedTopics]);
 
   const toggleTopic = (name: string) => {
     setSelectedTopics((current) => {
@@ -91,28 +86,6 @@ export function TopicStep() {
     }
   };
 
-  const generateFeed = () => {
-    const url = feedUrl(
-      encodeFeedConfig({
-        source: "topics",
-        topics: [...selectedTopics],
-        topicOperator: "or",
-        activityType,
-        ttl,
-        format: "atom",
-      }),
-    );
-    setGeneratedUrl(url);
-  };
-
-  const copyUrl = () => {
-    if (!generatedUrl) return;
-    navigator.clipboard.writeText(generatedUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), COPY_RESET_MS);
-    });
-  };
-
   const hasTopics = selectedTopics.length > 0;
   const atLimit = selectedTopics.length >= MAX_TOPICS;
 
@@ -128,6 +101,12 @@ export function TopicStep() {
       return (
         <p className="custom-topic__feedback custom-topic__feedback--error" id={feedbackId}>
           &ldquo;{debouncedCustom}&rdquo; is already in your selection.
+        </p>
+      );
+    if (customStatus === "error")
+      return (
+        <p className="custom-topic__feedback custom-topic__feedback--error" id={feedbackId}>
+          Could not validate topic. Please try again.
         </p>
       );
     return <p className="custom-topic__feedback" id={feedbackId} />;
@@ -153,14 +132,20 @@ export function TopicStep() {
           <div className="custom-topic__input-wrapper">
             <input
               aria-describedby={
-                customStatus === "invalid" || customStatus === "duplicate" ? feedbackId : undefined
+                customStatus === "invalid" ||
+                customStatus === "duplicate" ||
+                customStatus === "error"
+                  ? feedbackId
+                  : undefined
               }
               autoCapitalize="none"
               autoCorrect="off"
               className={[
                 "custom-topic__input",
                 customStatus === "valid" ? "custom-topic__input--valid" : "",
-                customStatus === "invalid" || customStatus === "duplicate"
+                customStatus === "invalid" ||
+                customStatus === "duplicate" ||
+                customStatus === "error"
                   ? "custom-topic__input--invalid"
                   : "",
               ]
@@ -177,11 +162,11 @@ export function TopicStep() {
               value={customInput}
             />
             {customStatus === "loading" ? (
-              <span aria-hidden="true" className="custom-topic__spinner" />
+              <span aria-hidden="true" className="spinner custom-topic__spinner" />
             ) : null}
           </div>
           <button
-            className="custom-topic__add"
+            className="btn-secondary custom-topic__add"
             disabled={customStatus !== "valid"}
             onClick={addCustomTopic}
             type="button"
@@ -220,79 +205,26 @@ export function TopicStep() {
       ) : null}
 
       {hasTopics ? (
-        <div className="feed-config">
-          <h3 className="feed-config__title">Configure your feed</h3>
-          <div className="feed-config__fields">
-            <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
-              <legend className="feed-config__label">Activity type</legend>
-              <div className="feed-config__radio-group">
-                <div className="feed-config__radio-option">
-                  <input
-                    checked={activityType === "releases"}
-                    id="topic-activity-releases"
-                    name="topic-activityType"
-                    onChange={() => setActivityType("releases")}
-                    type="radio"
-                    value="releases"
-                  />
-                  <label htmlFor="topic-activity-releases">Releases only</label>
-                </div>
-                <div className="feed-config__radio-option">
-                  <input
-                    checked={activityType === "all"}
-                    id="topic-activity-all"
-                    name="topic-activityType"
-                    onChange={() => setActivityType("all")}
-                    type="radio"
-                    value="all"
-                  />
-                  <label htmlFor="topic-activity-all">All activity (releases, issues, PRs)</label>
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="feed-config__field">
-              <label className="feed-config__label" htmlFor={ttlId}>
-                Update frequency
-              </label>
-              <select
-                className="feed-config__select"
-                id={ttlId}
-                onChange={(e) => setTtl(Number(e.target.value))}
-                value={ttl}
-              >
-                {TTL_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <button className="feed-config__submit" onClick={generateFeed} type="button">
-            Generate feed URL
-          </button>
-        </div>
+        <FeedConfigPanel
+          onConfigChange={() => setGeneratedUrl(null)}
+          onGenerate={(activityType, ttl) =>
+            setGeneratedUrl(
+              feedUrl(
+                encodeFeedConfig({
+                  source: "topics",
+                  topics: [...selectedTopics],
+                  topicOperator: "or",
+                  activityType,
+                  ttl,
+                  format: "atom",
+                }),
+              ),
+            )
+          }
+        />
       ) : null}
 
-      {generatedUrl ? (
-        <div className="feed-url">
-          <p className="feed-url__label">Your feed URL</p>
-          <div className="feed-url__row">
-            <a className="feed-url__link" href={generatedUrl} rel="noreferrer" target="_blank">
-              {generatedUrl}
-            </a>
-            <button
-              className={`feed-url__copy${copied ? " feed-url__copy--copied" : ""}`}
-              onClick={copyUrl}
-              type="button"
-            >
-              {copied ? "Copied!" : "Copy URL"}
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {generatedUrl ? <GeneratedFeedUrl url={generatedUrl} /> : null}
     </section>
   );
 }
