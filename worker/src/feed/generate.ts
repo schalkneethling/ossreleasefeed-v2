@@ -54,8 +54,7 @@ export const generateFeedEntries = (
       return Effect.flatMap(
         client.searchRepositoriesByTopics(config.topics, config.topicOperator),
         (repos) => {
-          const limit =
-            config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+          const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
           const capped = repos.slice(0, limit);
 
           return Effect.all(
@@ -72,8 +71,7 @@ export const generateFeedEntries = (
     }
 
     if (config.repos && config.repos.length > 0) {
-      const limit =
-        config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
       const repos = reposFromSelection(config.repos).slice(0, limit);
 
       return Effect.all(
@@ -88,7 +86,9 @@ export const generateFeedEntries = (
     return Effect.flatMap(client.getStarredRepos(config.username), (repos) =>
       Effect.all(
         [
-          fetchReleases(repos.slice(0, config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS)),
+          fetchReleases(
+            repos.slice(0, config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS),
+          ),
           config.activityType === "all"
             ? fetchIssues(repos.slice(0, MAX_REPOS_ALL_ACTIVITY))
             : Effect.succeed([] as FeedEntry[]),
