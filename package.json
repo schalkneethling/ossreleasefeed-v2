@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.2",
-    "@cloudflare/workers-types": "^4.20260214.0",
+    "@cloudflare/workers-types": "^5.20260708.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.0",
     "@varlock/1password-plugin": "^2.0.0",
