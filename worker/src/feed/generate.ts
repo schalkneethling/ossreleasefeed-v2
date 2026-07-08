@@ -83,17 +83,16 @@ export const generateFeedEntries = (
       ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues)));
     }
 
-    return Effect.flatMap(client.getStarredRepos(config.username), (repos) =>
-      Effect.all(
+    return Effect.flatMap(client.getStarredRepos(config.username), (repos) => {
+      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const capped = repos.slice(0, limit);
+
+      return Effect.all(
         [
-          fetchReleases(
-            repos.slice(0, config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS),
-          ),
-          config.activityType === "all"
-            ? fetchIssues(repos.slice(0, MAX_REPOS_ALL_ACTIVITY))
-            : Effect.succeed([] as FeedEntry[]),
+          fetchReleases(capped),
+          config.activityType === "all" ? fetchIssues(capped) : Effect.succeed([] as FeedEntry[]),
         ],
         { concurrency: 2 },
-      ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues))),
-    );
+      ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues)));
+    });
   });
