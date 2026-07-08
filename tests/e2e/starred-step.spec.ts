@@ -1,5 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { expectNoSeriousViolations } from "./test-utils";
 
 const makeRepo = (i: number) => ({
   full_name: `owner/repo-${i}`,
@@ -156,11 +156,7 @@ test.describe("repo list", () => {
   });
 
   test("enforces 25-repo selection cap with an announcement", async ({ page }) => {
-    // Use exactly 25 repos so all start selected, then load 5 more and try to select one
-    await page.route("**/api/users/validate/octocat", (route) =>
-      route.fulfill({ json: { exists: true, username: "octocat", hasStars: true } }),
-    );
-    await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: reposFixture }));
+    await setupValidUser(page);
     await gotoStarredStep(page);
 
     await page.getByRole("textbox", { name: /github username/i }).fill("octocat");
@@ -240,17 +236,6 @@ test.describe("accessibility", () => {
       timeout: 2000,
     });
     await page.getByRole("button", { name: /generate feed url/i }).click();
-    await page.evaluate(() =>
-      Promise.all(
-        document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
-      ),
-    );
-
-    const results = await new AxeBuilder({ page }).analyze();
-    const severe = results.violations.filter(
-      (violation) => violation.impact === "critical" || violation.impact === "serious",
-    );
-
-    expect(severe).toEqual([]);
+    await expectNoSeriousViolations(page);
   });
 });

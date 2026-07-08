@@ -1,5 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { expectNoSeriousViolations } from "./test-utils";
 
 const topicsFixture = [
   { name: "javascript", display_name: "JavaScript", short_description: "A scripting language" },
@@ -92,18 +92,7 @@ test.describe("featured topics grid", () => {
     await page.route("**/api/topics/featured", fulfillTopics);
     await gotoTopicStep(page);
     await expect(page.getByRole("checkbox")).toHaveCount(topicsFixture.length);
-    await page.evaluate(() =>
-      Promise.all(
-        document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
-      ),
-    );
-
-    const results = await new AxeBuilder({ page }).analyze();
-    const severe = results.violations.filter(
-      (violation) => violation.impact === "critical" || violation.impact === "serious",
-    );
-
-    expect(severe).toEqual([]);
+    await expectNoSeriousViolations(page);
   });
 });
 
@@ -234,17 +223,6 @@ test.describe("feed config and URL generation", () => {
 
     await page.getByRole("checkbox", { name: "TypeScript" }).check();
     await page.getByRole("button", { name: /generate feed url/i }).click();
-    await page.evaluate(() =>
-      Promise.all(
-        document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
-      ),
-    );
-
-    const results = await new AxeBuilder({ page }).analyze();
-    const severe = results.violations.filter(
-      (violation) => violation.impact === "critical" || violation.impact === "serious",
-    );
-
-    expect(severe).toEqual([]);
+    await expectNoSeriousViolations(page);
   });
 });

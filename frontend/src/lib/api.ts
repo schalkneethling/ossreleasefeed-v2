@@ -70,81 +70,65 @@ const isUsernameValidation = (value: unknown): value is UsernameValidation => {
   );
 };
 
-export async function fetchFeaturedTopics(signal?: AbortSignal): Promise<FeaturedTopic[]> {
+async function apiFetch<T>(
+  url: string,
+  validate: (payload: unknown) => payload is T,
+  label: string,
+  signal?: AbortSignal,
+): Promise<T> {
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const response = await fetch(apiUrl("/api/topics/featured"), {
+  const response = await fetch(url, {
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
   });
 
   if (!response.ok) {
-    throw new Error(`Featured topics request failed with ${response.status}`);
+    throw new Error(`${label} request failed with ${response.status}`);
   }
 
   const payload: unknown = await response.json();
 
-  if (!Array.isArray(payload) || !payload.every(isFeaturedTopic)) {
-    throw new Error("Featured topics response did not match the expected shape");
+  if (!validate(payload)) {
+    throw new Error(`${label} response did not match expected shape`);
   }
 
   return payload;
 }
 
+export async function fetchFeaturedTopics(signal?: AbortSignal): Promise<FeaturedTopic[]> {
+  return apiFetch(
+    apiUrl("/api/topics/featured"),
+    (p): p is FeaturedTopic[] => Array.isArray(p) && p.every(isFeaturedTopic),
+    "Featured topics",
+    signal,
+  );
+}
+
 export async function validateTopic(slug: string, signal?: AbortSignal): Promise<boolean> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const response = await fetch(apiUrl(`/api/topics/validate?q=${encodeURIComponent(slug)}`), {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Topic validation failed with ${response.status}`);
-  }
-
-  const payload: unknown = await response.json();
-
-  if (typeof payload !== "boolean") {
-    throw new Error("Topic validation response did not match expected shape");
-  }
-
-  return payload;
+  return apiFetch(
+    apiUrl(`/api/topics/validate?q=${encodeURIComponent(slug)}`),
+    (p): p is boolean => typeof p === "boolean",
+    "Topic validation",
+    signal,
+  );
 }
 
 export async function validateUsername(
   username: string,
   signal?: AbortSignal,
 ): Promise<UsernameValidation> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const response = await fetch(apiUrl(`/api/users/validate/${encodeURIComponent(username)}`), {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Username validation failed with ${response.status}`);
-  }
-
-  const payload: unknown = await response.json();
-
-  if (!isUsernameValidation(payload)) {
-    throw new Error("Username validation response did not match expected shape");
-  }
-
-  return payload;
+  return apiFetch(
+    apiUrl(`/api/users/validate/${encodeURIComponent(username)}`),
+    isUsernameValidation,
+    "Username validation",
+    signal,
+  );
 }
 
 export async function fetchStarredRepos(username: string, signal?: AbortSignal): Promise<Repo[]> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const response = await fetch(apiUrl(`/api/starred/${encodeURIComponent(username)}`), {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Starred repos request failed with ${response.status}`);
-  }
-
-  const payload: unknown = await response.json();
-
-  if (!Array.isArray(payload) || !payload.every(isRepo)) {
-    throw new Error("Starred repos response did not match expected shape");
-  }
-
-  return payload;
+  return apiFetch(
+    apiUrl(`/api/starred/${encodeURIComponent(username)}`),
+    (p): p is Repo[] => Array.isArray(p) && p.every(isRepo),
+    "Starred repos",
+    signal,
+  );
 }
