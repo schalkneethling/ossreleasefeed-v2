@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const TTL_OPTIONS = [
   { label: "1 hour", value: 3600 },
@@ -102,11 +102,15 @@ type CopyStatus = "idle" | "success" | "failed";
 
 export function GeneratedFeedUrl({ url }: { url: string }) {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(resetTimerRef.current), []);
 
   const copyUrl = () => {
     const settle = (status: CopyStatus) => {
+      clearTimeout(resetTimerRef.current);
       setCopyStatus(status);
-      setTimeout(() => setCopyStatus("idle"), COPY_RESET_MS);
+      resetTimerRef.current = setTimeout(() => setCopyStatus("idle"), COPY_RESET_MS);
     };
 
     if (!navigator.clipboard) {
