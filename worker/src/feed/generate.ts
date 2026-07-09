@@ -17,10 +17,19 @@ const splitRepo = (fullName: string) => {
   return { owner, repo };
 };
 
+// A 404, network error, or parse error on a single repo returns an empty list
+// rather than aborting the whole feed. Rate-limit errors propagate so feed.ts
+// can fall back to a stale cached feed.
 const fetchReleases = (repos: Repo[]) =>
   Effect.flatMap(GitHubClient, (client) =>
     Effect.all(
-      repos.map((repo) => client.getRepoReleases(repo.owner.login, repo.name)),
+      repos.map((repo) =>
+        client.getRepoReleases(repo.owner.login, repo.name).pipe(
+          Effect.catchTag("GitHubNotFoundError", () => Effect.succeed([] as FeedEntry[])),
+          Effect.catchTag("GitHubNetworkError", () => Effect.succeed([] as FeedEntry[])),
+          Effect.catchTag("FeedParseError", () => Effect.succeed([] as FeedEntry[])),
+        ),
+      ),
       { concurrency: 20 },
     ).pipe(Effect.map((entries) => entries.flat())),
   );
@@ -28,7 +37,12 @@ const fetchReleases = (repos: Repo[]) =>
 const fetchIssues = (repos: Repo[]) =>
   Effect.flatMap(GitHubClient, (client) =>
     Effect.all(
-      repos.map((repo) => client.getRepoIssues(repo.owner.login, repo.name)),
+      repos.map((repo) =>
+        client.getRepoIssues(repo.owner.login, repo.name).pipe(
+          Effect.catchTag("GitHubNotFoundError", () => Effect.succeed([] as FeedEntry[])),
+          Effect.catchTag("GitHubNetworkError", () => Effect.succeed([] as FeedEntry[])),
+        ),
+      ),
       { concurrency: 20 },
     ).pipe(Effect.map((entries) => entries.flat())),
   );
