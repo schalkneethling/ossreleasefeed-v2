@@ -51,8 +51,8 @@ importers:
         specifier: ^8.1.1
         version: 8.1.1(stylelint@16.26.1(typescript@5.9.3))
       stylelint-plugin-logical-css:
-        specifier: ^1.2.3
-        version: 1.3.0(stylelint@16.26.1(typescript@5.9.3))
+        specifier: ^2.1.0
+        version: 2.1.0(stylelint@16.26.1(typescript@5.9.3))
       stylelint-plugin-use-baseline:
         specifier: '*'
         version: 1.4.4(stylelint@16.26.1(typescript@5.9.3))
@@ -2210,11 +2210,10 @@ packages:
     peerDependencies:
       stylelint: ^16.18.0 || ^17.0.0
 
-  stylelint-plugin-logical-css@1.3.0:
-    resolution: {integrity: sha512-NDtuA+9tplPZTaA42vHFcldJGHiK5UFOIGIDP3ghTdWvo0pVI3NJlsOwMHoYs+XlvkRgRyzGrVVngddreebkTw==}
-    engines: {node: '>=18.12.0'}
+  stylelint-plugin-logical-css@2.1.0:
+    resolution: {integrity: sha512-625OT+p5y2kkGBaRV7uTYscuH0m1UueMXh0WcidrXgwF2DOnKov+un9tvuyNG+SUC07W0ibcn+fZvQs/keskww==}
     peerDependencies:
-      stylelint: "^14.0.0 || ^15.0.0 || ^16.0.0 ||\_^17.0.0"
+      stylelint: ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
   stylelint-plugin-use-baseline@1.4.4:
     resolution: {integrity: sha512-AHLlNRmnP+8FQZ7OqwWyzVapnAUAPTLhWVdR9+0lfVf9ahuxbsoGn2Oi+BURpcbNvAXRIu9V/8aC4F9j56PnFA==}
@@ -4282,7 +4281,7 @@ snapshots:
       postcss-sorting: 10.0.0(postcss@8.5.16)
       stylelint: 16.26.1(typescript@5.9.3)
 
-  stylelint-plugin-logical-css@1.3.0(stylelint@16.26.1(typescript@5.9.3)):
+  stylelint-plugin-logical-css@2.1.0(stylelint@16.26.1(typescript@5.9.3)):
     dependencies:
       stylelint: 16.26.1(typescript@5.9.3)
 

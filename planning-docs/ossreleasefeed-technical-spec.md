@@ -155,8 +155,9 @@ Oxlint rule sets to include: TypeScript rules, React rules, and `jsx-a11y` equiv
   "rules": {
     "media-feature-range-notation": "context",
     "order/properties-alphabetical-order": true,
-    "plugin/use-logical-properties-and-values": true,
-    "plugin/use-logical-units": true,
+    "logical-css/require-logical-keywords": true,
+    "logical-css/require-logical-properties": true,
+    "logical-css/require-logical-units": true,
     "plugin/selector-bem-pattern": {
       "preset": "bem"
     },
