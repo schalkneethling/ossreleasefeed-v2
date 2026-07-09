@@ -163,3 +163,8 @@
   border-color: var(--color-success);
   color: var(--color-success);
 }
+
+.feed-url__copy--failed {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}

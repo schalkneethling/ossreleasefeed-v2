@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const TTL_OPTIONS = [
   { label: "1 hour", value: 3600 },
@@ -98,19 +98,34 @@ export function FeedConfigPanel({
   );
 }
 
+type CopyStatus = "idle" | "success" | "failed";
+
 export function GeneratedFeedUrl({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(resetTimerRef.current), []);
 
   const copyUrl = () => {
-    if (!navigator.clipboard) return;
+    const settle = (status: CopyStatus) => {
+      clearTimeout(resetTimerRef.current);
+      setCopyStatus(status);
+      resetTimerRef.current = setTimeout(() => setCopyStatus("idle"), COPY_RESET_MS);
+    };
+
+    if (!navigator.clipboard) {
+      settle("failed");
+      return;
+    }
+
     navigator.clipboard
       .writeText(url)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), COPY_RESET_MS);
-      })
-      .catch(() => {});
+      .then(() => settle("success"))
+      .catch(() => settle("failed"));
   };
+
+  const label =
+    copyStatus === "success" ? "Copied!" : copyStatus === "failed" ? "Copy failed" : "Copy URL";
 
   return (
     <div className="feed-url">
@@ -120,11 +135,17 @@ export function GeneratedFeedUrl({ url }: { url: string }) {
           {url}
         </a>
         <button
-          className={`btn-secondary feed-url__copy${copied ? " feed-url__copy--copied" : ""}`}
+          className={[
+            "btn-secondary feed-url__copy",
+            copyStatus === "success" ? "feed-url__copy--copied" : "",
+            copyStatus === "failed" ? "feed-url__copy--failed" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onClick={copyUrl}
           type="button"
         >
-          {copied ? "Copied!" : "Copy URL"}
+          {label}
         </button>
       </div>
     </div>
