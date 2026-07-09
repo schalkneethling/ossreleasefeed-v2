@@ -184,19 +184,47 @@ describe("GET /feed/:config", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("returns 503 when GitHub is unavailable and no cached feed exists", async () => {
+  it(
+    "returns 503 when GitHub rate-limits and no cached feed exists",
+    // The mocked retry-after of 1s is retried twice before the error propagates, so this takes ~2s.
+    { timeout: 6_000 },
+    async () => {
+      server.use(
+        http.get(
+          "https://github.com/example/repo/releases.atom",
+          () =>
+            new HttpResponse("rate limited", {
+              status: 429,
+              headers: { "retry-after": "1" },
+            }),
+        ),
+      );
+
+      const response = await fetchApp(
+        `https://example.com/feed/${encodeFeedConfig(starredConfig)}`,
+      );
+      const payload = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(payload.error).toBe("GitHub temporarily unavailable");
+    },
+  );
+
+  it("returns an empty but valid feed when individual repo atom feeds return errors", async () => {
     server.use(
       http.get(
         "https://github.com/example/repo/releases.atom",
-        () => new HttpResponse("upstream error", { status: 500 }),
+        () => new HttpResponse("not found", { status: 404 }),
       ),
     );
 
     const response = await fetchApp(`https://example.com/feed/${encodeFeedConfig(starredConfig)}`);
-    const payload = await response.json();
+    const body = await response.text();
 
-    expect(response.status).toBe(503);
-    expect(payload.error).toBe("GitHub temporarily unavailable");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("application/atom+xml");
+    expect(body).toContain("<?xml");
+    expect(body).not.toContain("<entry>");
   });
 
   it("serves a cache hit without calling GitHub again", async () => {
