@@ -57,3 +57,41 @@ body {
   font-size: var(--text-sm);
   margin: 0;
 }
+
+/* Shared secondary button style used alongside BEM class names */
+.btn-secondary {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  padding-block: var(--space-2);
+  padding-inline: var(--space-4);
+  transition: border-color var(--duration-quick) var(--ease-out);
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-border-strong);
+}
+
+.btn-secondary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-accent-strong);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.btn-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Shared spinner visual — component classes add positioning */
+.spinner {
+  block-size: 0.875rem;
+  border: 2px solid var(--color-border);
+  border-block-start-color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  inline-size: 0.875rem;
+}
