@@ -1,5 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { expectNoSeriousViolations } from "./test-utils";
 
 const topicsFixture = [
   { name: "javascript", display_name: "JavaScript", short_description: "A scripting language" },
@@ -92,17 +92,137 @@ test.describe("featured topics grid", () => {
     await page.route("**/api/topics/featured", fulfillTopics);
     await gotoTopicStep(page);
     await expect(page.getByRole("checkbox")).toHaveCount(topicsFixture.length);
-    await page.evaluate(() =>
-      Promise.all(
-        document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
-      ),
-    );
+    await expectNoSeriousViolations(page);
+  });
+});
 
-    const results = await new AxeBuilder({ page }).analyze();
-    const severe = results.violations.filter(
-      (violation) => violation.impact === "critical" || violation.impact === "serious",
-    );
+test.describe("custom topic input", () => {
+  test("valid topic enables 'Add topic' and adds a tag on click", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await page.route("**/api/topics/validate*", (route) => route.fulfill({ json: true }));
+    await gotoTopicStep(page);
 
-    expect(severe).toEqual([]);
+    await page.getByLabel("Add a custom topic").fill("web-components");
+    await expect(page.getByRole("button", { name: "Add topic" })).toBeEnabled({ timeout: 2000 });
+
+    await page.getByRole("button", { name: "Add topic" }).click();
+
+    await expect(page.getByRole("list", { name: /selected topics/i })).toContainText(
+      "web-components",
+    );
+    await expect(page.getByLabel("Add a custom topic")).toHaveValue("");
+  });
+
+  test("Enter key adds a valid topic", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await page.route("**/api/topics/validate*", (route) => route.fulfill({ json: true }));
+    await gotoTopicStep(page);
+
+    await page.getByLabel("Add a custom topic").fill("game-dev");
+    await expect(page.getByRole("button", { name: "Add topic" })).toBeEnabled({ timeout: 2000 });
+    await page.getByLabel("Add a custom topic").press("Enter");
+
+    await expect(page.getByRole("list", { name: /selected topics/i })).toContainText("game-dev");
+  });
+
+  test("invalid topic shows an error message", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await page.route("**/api/topics/validate*", (route) => route.fulfill({ json: false }));
+    await gotoTopicStep(page);
+
+    await page.getByLabel("Add a custom topic").fill("not-a-real-topic-xyz");
+    await expect(page.getByText(/no github topic found matching/i)).toBeVisible({ timeout: 2000 });
+    await expect(page.getByRole("button", { name: "Add topic" })).toBeDisabled();
+  });
+
+  test("duplicate topic shows a duplicate error", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await page.route("**/api/topics/validate*", (route) => route.fulfill({ json: true }));
+    await gotoTopicStep(page);
+
+    // Add a topic first
+    await page.getByLabel("Add a custom topic").fill("clojure");
+    await page.getByRole("button", { name: "Add topic" }).click({ timeout: 2000 });
+
+    // Type the same topic again
+    await page.getByLabel("Add a custom topic").fill("clojure");
+    await expect(page.getByText(/already in your selection/i)).toBeVisible({ timeout: 2000 });
+    await expect(page.getByRole("button", { name: "Add topic" })).toBeDisabled();
+  });
+
+  test("tag remove button deselects the topic", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await gotoTopicStep(page);
+
+    await page.getByRole("checkbox", { name: "JavaScript" }).check();
+    await expect(page.getByRole("list", { name: /selected topics/i })).toContainText("javascript");
+
+    await page.getByRole("button", { name: /remove javascript/i }).click();
+
+    await expect(page.getByRole("list", { name: /selected topics/i })).toHaveCount(0);
+    await expect(page.getByRole("checkbox", { name: "JavaScript" })).not.toBeChecked();
+  });
+});
+
+test.describe("feed config and URL generation", () => {
+  test("config section appears after at least one topic is selected", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await gotoTopicStep(page);
+
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toHaveCount(0);
+
+    await page.getByRole("checkbox", { name: "TypeScript" }).check();
+
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeVisible();
+  });
+
+  test("generates a feed URL containing /feed/", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await gotoTopicStep(page);
+
+    await page.getByRole("checkbox", { name: "React" }).check();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+
+    const link = page.getByRole("link", { name: /\/feed\//i });
+    await expect(link).toBeVisible();
+    const href = await link.getAttribute("href");
+    expect(href).toMatch(/\/feed\/.+/);
+  });
+
+  test("copy button changes label to 'Copied!' then reverts", async ({ page }) => {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await gotoTopicStep(page);
+
+    await page.getByRole("checkbox", { name: "React" }).check();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+    await page.getByRole("button", { name: /copy url/i }).click();
+
+    await expect(page.getByRole("button", { name: /copied!/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /copy url/i })).toBeVisible({
+      timeout: 3000,
+    });
+  });
+
+  test("changing selection clears the generated URL", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await gotoTopicStep(page);
+
+    await page.getByRole("checkbox", { name: "React" }).check();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+    await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
+
+    await page.getByRole("checkbox", { name: "JavaScript" }).check();
+    await expect(page.getByRole("link", { name: /\/feed\//i })).toHaveCount(0);
+  });
+
+  test("full topic flow has no critical or serious axe violations", async ({ page }) => {
+    await page.route("**/api/topics/featured", fulfillTopics);
+    await page.route("**/api/topics/validate*", (route) => route.fulfill({ json: true }));
+    await gotoTopicStep(page);
+
+    await page.getByRole("checkbox", { name: "TypeScript" }).check();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+    await expectNoSeriousViolations(page);
   });
 });

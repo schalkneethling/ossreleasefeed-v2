@@ -35,9 +35,7 @@ app.use("*", async (ctx, next) => {
   ctx.res = response;
 });
 
-// TODO(schalkneethling): replace with the real production frontend origin
-// once the domain is decided — tracked in TODO.md.
-const PRODUCTION_FRONTEND_ORIGIN = "https://ossreleasefeed.example";
+const PRODUCTION_FRONTEND_ORIGIN = "https://ossreleasefeed.pages.dev";
 const PAGES_PREVIEW_ORIGIN = /^https:\/\/[a-z0-9-]+\.ossreleasefeed\.pages\.dev$/u;
 
 // The SPA is served by Cloudflare Pages on a different origin, so the /api/*

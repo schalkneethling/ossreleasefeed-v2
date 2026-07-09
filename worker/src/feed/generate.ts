@@ -5,6 +5,12 @@ import { mergeEntries } from "./build";
 import type { GitHubClientService } from "../github/client";
 import { GitHubClient } from "../github/client";
 
+const MAX_REPOS = 25;
+// Cloudflare Workers free plan caps at 50 subrequests per invocation.
+// Each repo costs 2 subrequests when activityType is "all" (releases + issues),
+// so cap lower to leave headroom for search/paginate calls.
+const MAX_REPOS_ALL_ACTIVITY = 24;
+
 const splitRepo = (fullName: string) => {
   const [owner, repo] = fullName.split("/");
 
@@ -47,21 +53,26 @@ export const generateFeedEntries = (
     if (config.source === "topics") {
       return Effect.flatMap(
         client.searchRepositoriesByTopics(config.topics, config.topicOperator),
-        (repos) =>
-          Effect.all(
+        (repos) => {
+          const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+          const capped = repos.slice(0, limit);
+
+          return Effect.all(
             [
-              fetchReleases(repos),
+              fetchReleases(capped),
               config.activityType === "all"
-                ? fetchIssues(repos)
+                ? fetchIssues(capped)
                 : Effect.succeed([] as FeedEntry[]),
             ],
             { concurrency: 2 },
-          ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues))),
+          ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues)));
+        },
       );
     }
 
     if (config.repos && config.repos.length > 0) {
-      const repos = reposFromSelection(config.repos);
+      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const repos = reposFromSelection(config.repos).slice(0, limit);
 
       return Effect.all(
         [
@@ -72,15 +83,16 @@ export const generateFeedEntries = (
       ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues)));
     }
 
-    return Effect.flatMap(client.getStarredRepos(config.username), (repos) =>
-      Effect.all(
+    return Effect.flatMap(client.getStarredRepos(config.username), (repos) => {
+      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const capped = repos.slice(0, limit);
+
+      return Effect.all(
         [
-          fetchReleases(repos.slice(0, 25)),
-          config.activityType === "all"
-            ? fetchIssues(repos.slice(0, 25))
-            : Effect.succeed([] as FeedEntry[]),
+          fetchReleases(capped),
+          config.activityType === "all" ? fetchIssues(capped) : Effect.succeed([] as FeedEntry[]),
         ],
         { concurrency: 2 },
-      ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues))),
-    );
+      ).pipe(Effect.map(([releases, issues]) => mergeEntries(releases, issues)));
+    });
   });

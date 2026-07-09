@@ -25,19 +25,12 @@ binding.
 - [ ] Verify: `pnpm exec varlock load` from the repo root should show GITHUB_PAT
       as resolved (redacted), then `pnpm run dev:worker` should start clean.
 
-## 2. Decide the production domain — unblocks CORS, CSP, and wrangler routes
+## 2. Production URLs (resolved)
 
-Three placeholders in the codebase need the real names once decided:
-
-- [ ] Frontend origin (e.g. `ossreleasefeed.dev`) → replace
-      `PRODUCTION_FRONTEND_ORIGIN` in `worker/src/index.ts`.
-- [ ] Worker origin (e.g. `api.ossreleasefeed.dev`) → replace
-      `api.ossreleasefeed.example` in `frontend/public/_headers` (connect-src).
-- [ ] Tell Claude the names — wrangler `routes` config and the Pages
-      `VITE_WORKER_URL` value follow from them.
-- [ ] If the Pages project name ends up different from `ossreleasefeed`, the
-      preview-origin regex in `worker/src/index.ts` (`*.ossreleasefeed.pages.dev`)
-      needs the real project slug too.
+- [x] Frontend: `https://ossreleasefeed.pages.dev` — set in `worker/src/index.ts`
+- [x] Worker: `https://ossreleasefeed-worker.volume4-schalk.workers.dev` — set in `frontend/public/_headers`
+- [x] Pages project name is `ossreleasefeed`, so the preview-origin regex in
+      `worker/src/index.ts` (`*.ossreleasefeed.pages.dev`) is already correct.
 
 ## 3. Cloudflare — unblocks first deploy
 

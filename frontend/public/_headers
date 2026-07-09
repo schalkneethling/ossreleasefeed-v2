@@ -1,9 +1,7 @@
 # Security headers for the Cloudflare Pages-served SPA. The Worker's own
 # header middleware only covers Worker responses, not these static pages.
-# TODO(schalkneethling): replace api.ossreleasefeed.example with the real
-# Worker origin once the domain is decided — tracked in TODO.md.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://cloud.umami.is; connect-src 'self' https://api.ossreleasefeed.example https://cloud.umami.is; img-src 'self' data:; font-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cloud.umami.is; connect-src 'self' https://ossreleasefeed-worker.volume4-schalk.workers.dev https://cloud.umami.is; img-src 'self' data:; font-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
