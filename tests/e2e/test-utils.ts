@@ -11,5 +11,6 @@ export async function expectNoSeriousViolations(page: Page): Promise<void> {
   const severe = results.violations.filter(
     (v) => v.impact === "critical" || v.impact === "serious",
   );
-  expect(severe).toEqual([]);
+  const summary = severe.map((v) => `${v.id} (${v.impact})`).join(", ");
+  expect(severe.length, `Axe violations found: ${summary}`).toBe(0);
 }
