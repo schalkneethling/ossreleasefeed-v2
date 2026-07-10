@@ -9,6 +9,7 @@ import { createSnapshotRequest, getCache } from "../lib/cache";
 import { decodeFeedConfig } from "../lib/config";
 import { GitHubRateLimitError } from "../lib/errors";
 import { invalidFeedConfig } from "../lib/http";
+import { captureFeedError } from "../lib/sentry";
 import type { AppEnv } from "../lib/types";
 
 const cacheHeader = (ttl: number) => `public, max-age=${Math.max(ttl, 3600)}`;
@@ -124,6 +125,8 @@ feedRoutes.get("/:config", async (ctx) => {
 
       return renderFeed(body, config.ttl, config.format, error.retryAfter);
     }
+
+    captureFeedError(error);
 
     return ctx.json(
       {

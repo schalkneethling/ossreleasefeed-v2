@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useDebounce } from "../hooks/useDebounce";
+import { trackEvent } from "../lib/analytics";
 import { feedUrl, fetchStarredRepos, validateUsername, type Repo } from "../lib/api";
 import { encodeFeedConfig } from "../lib/config";
 import { MAX_STARRED_REPOS } from "../lib/constraints";
@@ -49,10 +50,12 @@ export function StarredStep() {
     validateUsername(debouncedUsername, controller.signal)
       .then((result) => {
         if (!result.exists) {
+          trackEvent("Feed generation failed", { errorType: "username-not-found" });
           setUsernameStatus("not-found");
           return;
         }
         if (!result.hasStars) {
+          trackEvent("Feed generation failed", { errorType: "username-no-stars" });
           setUsernameStatus("no-stars");
           return;
         }
@@ -64,7 +67,10 @@ export function StarredStep() {
         });
       })
       .catch(() => {
-        if (!controller.signal.aborted) setUsernameStatus("error");
+        if (!controller.signal.aborted) {
+          trackEvent("Feed generation failed", { errorType: "username-validation-error" });
+          setUsernameStatus("error");
+        }
       });
 
     return () => controller.abort();
@@ -299,6 +305,7 @@ export function StarredStep() {
                 }),
               ),
             );
+            trackEvent("Feed URL generated successfully", { source: "starred" });
           }}
         />
       ) : null}

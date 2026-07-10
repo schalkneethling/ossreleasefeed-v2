@@ -1,10 +1,16 @@
 import { http, HttpResponse } from "msw";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../../worker/src/index";
 import { encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
+import { captureFeedError } from "../../worker/src/lib/sentry";
 import { encodeRawConfig } from "../helpers";
 import { server } from "./setup";
+
+vi.mock("../../worker/src/lib/sentry", () => ({
+  captureFeedError: vi.fn<(error: unknown) => void>(),
+  sentryOptions: () => undefined,
+}));
 
 const env = {
   APP_NAME: "ossreleasefeed",
@@ -105,6 +111,7 @@ const installFakeCache = (): FakeCache => {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, "caches");
+  vi.mocked(captureFeedError).mockClear();
 });
 
 describe("GET /feed/:config", () => {
@@ -117,6 +124,7 @@ describe("GET /feed/:config", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/atom+xml");
     expect(body).toContain("[example/repo] Release: v1.0.0");
+    expect(captureFeedError).not.toHaveBeenCalled();
   });
 
   it("returns atom feed output for a valid topic config", async () => {
@@ -207,6 +215,10 @@ describe("GET /feed/:config", () => {
 
       expect(response.status).toBe(503);
       expect(payload.error).toBe("GitHub temporarily unavailable");
+      expect(captureFeedError).toHaveBeenCalledTimes(1);
+      expect(captureFeedError).toHaveBeenCalledWith(
+        expect.objectContaining({ _tag: "GitHubRateLimitError" }),
+      );
     },
   );
 

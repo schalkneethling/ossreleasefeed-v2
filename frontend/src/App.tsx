@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Builder } from "./components/Builder";
 import { Hero } from "./components/Hero";
+import { trackEvent } from "./lib/analytics";
 
 const FeedMark = () => (
   <svg aria-hidden="true" className="site-header__mark" viewBox="0 0 24 24">
@@ -24,7 +25,13 @@ export function App() {
         </div>
       </header>
       <main className="page">
-        <Hero builderStarted={builderStarted} onCreateFeed={() => setBuilderStarted(true)} />
+        <Hero
+          builderStarted={builderStarted}
+          onCreateFeed={() => {
+            trackEvent("Feed builder started");
+            setBuilderStarted(true);
+          }}
+        />
         {builderStarted ? <Builder /> : null}
       </main>
       <footer className="site-footer">
