@@ -149,10 +149,9 @@ test.describe("repo list", () => {
     });
 
     await page.getByRole("button", { name: /deselect all/i }).click();
-    await page.getByRole("button", { name: /select all/i }).click();
+    await page.getByRole("button", { name: "Select all", exact: true }).click();
 
-    const checked = page.getByRole("checkbox").filter({ has: page.locator(":checked") });
-    await expect(checked).toHaveCount(25);
+    await expect(page.getByRole("checkbox", { checked: true })).toHaveCount(25);
   });
 
   test("enforces 25-repo selection cap with an announcement", async ({ page }) => {

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useDebounce } from "../hooks/useDebounce";
+import { trackEvent } from "../lib/analytics";
 import { feedUrl, validateTopic } from "../lib/api";
 import { encodeFeedConfig } from "../lib/config";
 import { MAX_TOPICS } from "../lib/constraints";
@@ -46,9 +47,15 @@ export function TopicStep() {
     setCustomStatus("loading");
 
     validateTopic(debouncedCustom, controller.signal)
-      .then((valid) => setCustomStatus(valid ? "valid" : "invalid"))
+      .then((valid) => {
+        if (!valid) trackEvent("Feed generation failed", { errorType: "topic-not-found" });
+        setCustomStatus(valid ? "valid" : "invalid");
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setCustomStatus("error");
+        if (!controller.signal.aborted) {
+          trackEvent("Feed generation failed", { errorType: "topic-validation-error" });
+          setCustomStatus("error");
+        }
       });
 
     return () => controller.abort();
@@ -93,19 +100,31 @@ export function TopicStep() {
     if (customStatus === "loading") return <p className="custom-topic__feedback" id={feedbackId} />;
     if (customStatus === "invalid")
       return (
-        <p className="custom-topic__feedback custom-topic__feedback--error" id={feedbackId}>
+        <p
+          className="custom-topic__feedback custom-topic__feedback--error"
+          id={feedbackId}
+          role="alert"
+        >
           No GitHub topic found matching &ldquo;{debouncedCustom}&rdquo;.
         </p>
       );
     if (customStatus === "duplicate")
       return (
-        <p className="custom-topic__feedback custom-topic__feedback--error" id={feedbackId}>
+        <p
+          className="custom-topic__feedback custom-topic__feedback--error"
+          id={feedbackId}
+          role="alert"
+        >
           &ldquo;{debouncedCustom}&rdquo; is already in your selection.
         </p>
       );
     if (customStatus === "error")
       return (
-        <p className="custom-topic__feedback custom-topic__feedback--error" id={feedbackId}>
+        <p
+          className="custom-topic__feedback custom-topic__feedback--error"
+          id={feedbackId}
+          role="alert"
+        >
           Could not validate topic. Please try again.
         </p>
       );
@@ -207,7 +226,7 @@ export function TopicStep() {
       {hasTopics ? (
         <FeedConfigPanel
           onConfigChange={() => setGeneratedUrl(null)}
-          onGenerate={(activityType, ttl) =>
+          onGenerate={(activityType, ttl) => {
             setGeneratedUrl(
               feedUrl(
                 encodeFeedConfig({
@@ -219,8 +238,9 @@ export function TopicStep() {
                   format: "atom",
                 }),
               ),
-            )
-          }
+            );
+            trackEvent("Feed URL generated successfully", { source: "topics" });
+          }}
         />
       ) : null}
 

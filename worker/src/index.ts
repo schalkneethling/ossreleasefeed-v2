@@ -1,4 +1,5 @@
 import { Octokit } from "@octokit/rest";
+import * as Sentry from "@sentry/cloudflare";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { feedRoutes } from "./routes/feed";
@@ -7,6 +8,7 @@ import { topicsRoutes } from "./routes/topics";
 import { usersRoutes } from "./routes/users";
 import type { AppEnv } from "./lib/types";
 import { makeGitHubLayer } from "./github/client";
+import { sentryOptions } from "./lib/sentry";
 
 export const app = new Hono<AppEnv>();
 
@@ -65,8 +67,8 @@ app.get("/", (ctx) => {
   return ctx.text("OSSReleaseFeed worker scaffold");
 });
 
-export default {
+export default Sentry.withSentry(sentryOptions, {
   fetch(request: Request, env: AppEnv["Bindings"], executionContext: ExecutionContext) {
     return app.fetch(request, env, executionContext);
   },
-};
+});

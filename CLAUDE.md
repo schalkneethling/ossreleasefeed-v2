@@ -14,3 +14,7 @@ Always clean up timers, intervals, observers, and event listeners. Unmanaged res
 
 - Capture the return value of `setTimeout` / `setInterval` / `addEventListener` and pair every registration with an explicit teardown.
 - Use `AbortController` for fetch calls and abort in cleanup so in-flight requests do not resolve after the context that issued them is gone.
+
+## GitHub Actions workflows
+
+Run `pnpm run lint:actions` before committing changes under `.github/workflows/`. It requires `actionlint` and `zizmor` on PATH (`brew install actionlint zizmor`); not part of the default `lint` script since CI doesn't have these binaries installed.

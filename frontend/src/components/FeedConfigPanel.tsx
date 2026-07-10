@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { trackEvent } from "../lib/analytics";
 
 const TTL_OPTIONS = [
   { label: "1 hour", value: 3600 },
@@ -107,6 +108,8 @@ export function GeneratedFeedUrl({ url }: { url: string }) {
   useEffect(() => () => clearTimeout(resetTimerRef.current), []);
 
   const copyUrl = () => {
+    trackEvent("Copy button clicked");
+
     const settle = (status: CopyStatus) => {
       clearTimeout(resetTimerRef.current);
       setCopyStatus(status);

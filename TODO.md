@@ -44,17 +44,27 @@ binding.
       `VITE_WORKER_URL` = the Worker's public URL (workers.dev URL is fine
       until the custom domain exists).
 - [ ] Set Pages env var `VITE_UMAMI_WEBSITE_ID` = website id from item 5.
+- [ ] Set Pages env var `VITE_E2E_TEST_HOOKS` = `true`, scoped to the
+      **Preview** environment only (leave unset for Production). This
+      enables the `?__throw=1` ErrorBoundary trigger used by
+      `tests/e2e/error-boundary.spec.ts`, which the e2e workflow (item 4)
+      runs against PR preview deployments — without this it stays
+      unreachable everywhere, including in CI.
 - [ ] Later (pre-launch, Phase 5): add the custom domain to the Worker,
       disable the workers.dev route (WAF rules do not apply on workers.dev),
       and add the domain to Pages.
 
 ## 4. GitHub repository settings — unblocks deploy workflow and CI e2e
 
-- [ ] Secrets → Actions: `CLOUDFLARE_API_TOKEN` (token with Workers + Pages
-      edit permissions) and `CLOUDFLARE_ACCOUNT_ID`.
-- [ ] Variables → Actions: `PLAYWRIGHT_BASE_URL` = the deployed Pages URL.
-      The e2e workflow job skips while this is unset — that is why the
-      "e2e" check shows as SKIPPED on PRs today.
+- [ ] Secrets → Actions: `CLOUDFLARE_API_TOKEN` (token with Workers Edit,
+      for `deploy.yml`, and Pages Read, for the e2e workflow's deployment
+      lookup — it only reads deployment status, never writes) and
+      `CLOUDFLARE_ACCOUNT_ID`. The e2e workflow's steps after the secrets
+      check skip while either is unset — that is why the e2e run does
+      nothing useful on PRs today.
+      The workflow looks up each PR's own Cloudflare Pages preview
+      deployment via the Pages API and points Playwright at it directly —
+      no static `PLAYWRIGHT_BASE_URL` variable needed.
 
 ## 5. Umami (analytics)
 

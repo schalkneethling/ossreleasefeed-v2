@@ -1,0 +1,26 @@
+.error-fallback {
+  margin-inline: auto;
+  max-inline-size: 32rem;
+  padding-block: var(--space-16);
+  padding-inline: var(--space-4);
+  text-align: center;
+}
+
+.error-fallback__heading {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  margin-block: 0 var(--space-3);
+}
+
+.error-fallback__message {
+  color: var(--color-text-muted);
+  margin-block: 0 var(--space-4);
+}
+
+.error-fallback__event-id {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin-block: 0 var(--space-6);
+}
