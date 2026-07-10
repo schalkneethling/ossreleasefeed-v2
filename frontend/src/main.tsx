@@ -21,13 +21,15 @@ if (!rootElement) {
 
 // No component-testing harness exists in this project (Playwright only), so the
 // ErrorBoundary's fallback path is exercised end-to-end via this opt-in trigger
-// rather than left uncovered. It requires an undocumented query param and has no
-// effect on any real user flow.
+// rather than left uncovered. Gated behind a build-time flag (unset in production
+// builds) plus the query param, so the crash cannot be triggered in production.
 function ThrowForErrorBoundaryTest(): never {
   throw new Error("Forced render error for error boundary e2e test");
 }
 
-const shouldThrowForTest = new URLSearchParams(window.location.search).has("__throw");
+const testHooksEnabled = import.meta.env.VITE_E2E_TEST_HOOKS === "true";
+const shouldThrowForTest =
+  testHooksEnabled && new URLSearchParams(window.location.search).has("__throw");
 
 createRoot(rootElement).render(
   <StrictMode>

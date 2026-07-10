@@ -59,12 +59,19 @@ export function StarredStep() {
           setUsernameStatus("no-stars");
           return;
         }
-        return fetchStarredRepos(debouncedUsername, controller.signal).then((fetched) => {
-          setRepos(fetched);
-          setSelectedRepos(new Set(fetched.slice(0, MAX_STARRED_REPOS).map((r) => r.full_name)));
-          setDisplayCount(PAGE_SIZE);
-          setUsernameStatus("valid");
-        });
+        return fetchStarredRepos(debouncedUsername, controller.signal)
+          .then((fetched) => {
+            setRepos(fetched);
+            setSelectedRepos(new Set(fetched.slice(0, MAX_STARRED_REPOS).map((r) => r.full_name)));
+            setDisplayCount(PAGE_SIZE);
+            setUsernameStatus("valid");
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) {
+              trackEvent("Feed generation failed", { errorType: "starred-repos-fetch-error" });
+              setUsernameStatus("error");
+            }
+          });
       })
       .catch(() => {
         if (!controller.signal.aborted) {

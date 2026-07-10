@@ -6,11 +6,47 @@ on:
 
 jobs:
   e2e:
-    if: ${{ vars.PLAYWRIGHT_BASE_URL != '' }}
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Cloudflare Pages is connected to this repo via its native Git
+      # integration (not deployed from this workflow), so the preview URL
+      # for this branch has to be looked up from the Pages API rather than
+      # passed in statically — a fixed URL can't reflect an unmerged PR.
+      - name: Wait for Cloudflare Pages preview deployment
+        id: pages-preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          branch="${{ github.head_ref || github.ref_name }}"
+          project="ossreleasefeed"
+
+          for _ in $(seq 1 30); do
+            response=$(curl -s -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${project}/deployments?env=preview")
+
+            url=$(echo "$response" | jq -r --arg branch "$branch" '
+              [.result[] | select(.deployment_trigger.metadata.branch == $branch)]
+              | sort_by(.created_on)
+              | last
+              | select(.latest_stage.status == "success")
+              | .url // empty
+            ')
+
+            if [ -n "$url" ]; then
+              echo "url=$url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            sleep 20
+          done
+
+          echo "Timed out waiting for a successful Cloudflare Pages preview deployment for branch '${branch}'" >&2
+          exit 1
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -31,5 +67,5 @@ jobs:
 
       - name: Run Playwright E2E
         env:
-          PLAYWRIGHT_BASE_URL: ${{ vars.PLAYWRIGHT_BASE_URL }}
+          PLAYWRIGHT_BASE_URL: ${{ steps.pages-preview.outputs.url }}
         run: pnpm run test:e2e
