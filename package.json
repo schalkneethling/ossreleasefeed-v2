@@ -9,6 +9,7 @@
     "build": "pnpm run build:frontend && pnpm run build:worker",
     "typecheck": "tsc --noEmit -p frontend/tsconfig.json && tsc --noEmit -p worker/tsconfig.json",
     "lint": "oxlint . && stylelint \"frontend/src/**/*.css\" && pnpm run format:check",
+    "lint:actions": "actionlint && zizmor .github/workflows/",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test:unit": "vitest run --config vitest.config.ts",
