@@ -50,6 +50,15 @@ jobs:
               response=$(curl -s -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
                 "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${project}/deployments?env=preview&page=${page}")
 
+              # A failed request (e.g. bad token/permissions) still has a `result`
+              # field of `null`, which `// []` would otherwise mask as "no
+              # deployments yet" and retry silently until the outer timeout.
+              success=$(echo "$response" | jq -r '.success // false')
+              if [ "$success" != "true" ]; then
+                echo "Cloudflare API request failed: $response" >&2
+                exit 1
+              fi
+
               all=$(jq -c -s '.[0] + .[1]' \
                 <(echo "$all") \
                 <(echo "$response" | jq -c '.result // []'))
