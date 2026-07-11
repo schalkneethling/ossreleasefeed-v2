@@ -7,9 +7,13 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -26,6 +30,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Deploy worker
-        run: pnpm --filter worker deploy
+        # `pnpm --filter worker deploy` collides with pnpm's own reserved
+        # `deploy` command (builds a deployable package subset) instead of
+        # running the `deploy` script in worker/package.json — `run` is
+        # required to disambiguate.
+        run: pnpm --filter worker run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
