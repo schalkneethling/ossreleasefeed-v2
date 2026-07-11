@@ -16,6 +16,14 @@ export function App() {
 
   return (
     <>
+      <div className="beta-banner">
+        <div className="beta-banner__inner">
+          <p className="beta-banner__text">
+            Public beta — under heavy load, some feeds may briefly return an error while we're on
+            shared infrastructure limits.
+          </p>
+        </div>
+      </div>
       <header className="site-header">
         <div className="site-header__inner">
           <span className="site-header__wordmark">
