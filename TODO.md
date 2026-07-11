@@ -37,17 +37,13 @@ binding.
 ## 3. Cloudflare — unblocks first deploy
 
 - [ ] Confirm the account is on **Workers Paid** ($5/mo). Still on the free
-      plan as of beta launch. Most feeds stay well under the free plan's
-      50-subrequest cap — `MAX_REPOS`/`MAX_REPOS_ALL_ACTIVITY` in
-      `worker/src/feed/generate.ts` already bound repo count for exactly
-      this reason. The one combination that still exceeds it: a topics feed
-      using the "or" operator with all 5 topics selected and activity type
-      "all" — up to 5 search subrequests plus 24 repos × 2 (releases +
-      issues) = ~53. That specific config gets a 503 with no stale-cache
-      fallback (the fallback in `routes/feed.ts` only covers
-      `GitHubRateLimitError`, not a Workers subrequest-limit exception).
-      Fine to defer for beta with a notice about the edge case; upgrading
-      removes it entirely.
+      plan as of beta launch. All feeds now stay within the free plan's
+      50-subrequest cap — `reposLimitForAllActivity()` in
+      `worker/src/feed/generate.ts` accounts for topics-search subrequests
+      (1 for "and", up to 5 for "or") on top of the release/issue calls, so
+      the repo count shrinks accordingly instead of a flat 24. Not a hard
+      requirement for beta; upgrading is about headroom/throughput, not
+      correctness.
 - [x] Set the Worker's runtime secret: `cd worker && pnpm exec wrangler secret put GITHUB_PAT`.
 - [x] Create the Cloudflare Pages project (connect it to this repo,
       build command `pnpm run build:frontend`, output `frontend/dist`).

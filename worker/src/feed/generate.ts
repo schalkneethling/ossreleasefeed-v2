@@ -6,10 +6,16 @@ import type { GitHubClientService } from "../github/client";
 import { GitHubClient } from "../github/client";
 
 const MAX_REPOS = 25;
-// Cloudflare Workers free plan caps at 50 subrequests per invocation.
-// Each repo costs 2 subrequests when activityType is "all" (releases + issues),
-// so cap lower to leave headroom for search/paginate calls.
-const MAX_REPOS_ALL_ACTIVITY = 24;
+// Cloudflare Workers free plan caps at 50 subrequests per invocation. Each
+// repo costs 2 subrequests when activityType is "all" (releases + issues).
+// Topics search adds its own subrequests on top of that: 1 for "and" (a
+// single combined query) or one per topic for "or" (parallel per-topic
+// queries, up to 5) — so the repo cap has to shrink to account for them.
+// 48 keeps 2 requests of headroom under the 50-request ceiling.
+const SUBREQUEST_BUDGET_ALL_ACTIVITY = 48;
+
+const reposLimitForAllActivity = (searchSubrequests = 0) =>
+  Math.floor((SUBREQUEST_BUDGET_ALL_ACTIVITY - searchSubrequests) / 2);
 
 const splitRepo = (fullName: string) => {
   const [owner, repo] = fullName.split("/");
@@ -68,7 +74,9 @@ export const generateFeedEntries = (
       return Effect.flatMap(
         client.searchRepositoriesByTopics(config.topics, config.topicOperator),
         (repos) => {
-          const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+          const searchSubrequests = config.topicOperator === "or" ? config.topics.length : 1;
+          const limit =
+            config.activityType === "all" ? reposLimitForAllActivity(searchSubrequests) : MAX_REPOS;
           const capped = repos.slice(0, limit);
 
           return Effect.all(
@@ -85,7 +93,7 @@ export const generateFeedEntries = (
     }
 
     if (config.repos && config.repos.length > 0) {
-      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const limit = config.activityType === "all" ? reposLimitForAllActivity() : MAX_REPOS;
       const repos = reposFromSelection(config.repos).slice(0, limit);
 
       return Effect.all(
@@ -98,7 +106,7 @@ export const generateFeedEntries = (
     }
 
     return Effect.flatMap(client.getStarredRepos(config.username), (repos) => {
-      const limit = config.activityType === "all" ? MAX_REPOS_ALL_ACTIVITY : MAX_REPOS;
+      const limit = config.activityType === "all" ? reposLimitForAllActivity() : MAX_REPOS;
       const capped = repos.slice(0, limit);
 
       return Effect.all(
