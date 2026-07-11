@@ -35,7 +35,7 @@
     "stylelint-plugin-logical-css": "^2.1.0",
     "stylelint-plugin-use-baseline": "*",
     "stylelint-selector-bem-pattern": "^5.0.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "varlock": "^1.10.0",
     "vitest": "^4.1.10"
   },
