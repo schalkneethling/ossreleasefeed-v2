@@ -27,7 +27,9 @@ binding.
 
 ## 2. Production URLs (resolved)
 
-- [x] Frontend: `https://ossreleasefeed.pages.dev` — set in `worker/src/index.ts`
+- [x] Frontend: `https://ossreleasefeed.pages.dev` and custom domain
+      `https://ossreleasefeed.schalkneethling.com` — both allow-listed in
+      `worker/src/index.ts`
 - [x] Worker: `https://ossreleasefeed-worker.volume4-schalk.workers.dev` — set in `frontend/public/_headers`
 - [x] Pages project name is `ossreleasefeed`, so the preview-origin regex in
       `worker/src/index.ts` (`*.ossreleasefeed.pages.dev`) is already correct.
@@ -50,9 +52,13 @@ binding.
       `tests/e2e/error-boundary.spec.ts`, which the e2e workflow (item 4)
       runs against PR preview deployments — without this it stays
       unreachable everywhere, including in CI.
-- [ ] Later (pre-launch, Phase 5): add the custom domain to the Worker,
-      disable the workers.dev route (WAF rules do not apply on workers.dev),
-      and add the domain to Pages.
+- [x] Custom domain added to Pages: `ossreleasefeed.schalkneethling.com`.
+- [ ] Deferred: custom domain for the Worker (`ossreleasefeed-api.schalkneethling.com`
+      or similar). Unlike Pages, Workers Custom Domains require the zone to
+      be on Cloudflare nameservers — no CNAME-only path — so this means
+      migrating `schalkneethling.com`'s nameservers to Cloudflare, not just
+      adding one record. Worth doing eventually since WAF rules don't apply
+      on workers.dev, but deliberately deferred for now.
 
 ## 4. GitHub repository settings — unblocks deploy workflow and CI e2e
 

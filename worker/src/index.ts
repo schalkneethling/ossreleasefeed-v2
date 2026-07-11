@@ -37,7 +37,12 @@ app.use("*", async (ctx, next) => {
   ctx.res = response;
 });
 
-const PRODUCTION_FRONTEND_ORIGIN = "https://ossreleasefeed.pages.dev";
+// pages.dev stays allowed alongside the custom domain since Cloudflare Pages
+// doesn't disable it once a custom domain is attached.
+const PRODUCTION_FRONTEND_ORIGINS = [
+  "https://ossreleasefeed.pages.dev",
+  "https://ossreleasefeed.schalkneethling.com",
+];
 const PAGES_PREVIEW_ORIGIN = /^https:\/\/[a-z0-9-]+\.ossreleasefeed\.pages\.dev$/u;
 
 // The SPA is served by Cloudflare Pages on a different origin, so the /api/*
@@ -47,7 +52,7 @@ app.use(
   "/api/*",
   cors({
     origin: (origin) => {
-      if (origin === PRODUCTION_FRONTEND_ORIGIN || PAGES_PREVIEW_ORIGIN.test(origin)) {
+      if (PRODUCTION_FRONTEND_ORIGINS.includes(origin) || PAGES_PREVIEW_ORIGIN.test(origin)) {
         return origin;
       }
 
