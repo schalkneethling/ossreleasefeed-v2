@@ -52,6 +52,11 @@ body {
 }
 
 .site-footer__inner {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
   margin-inline: auto;
   max-inline-size: 44rem;
   padding-block: var(--space-6);
@@ -62,6 +67,17 @@ body {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   margin: 0;
+}
+
+.site-footer__link {
+  color: var(--color-accent-deep);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.site-footer__link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-accent-strong);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* Shared secondary button style used alongside BEM class names */

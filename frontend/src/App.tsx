@@ -40,6 +40,14 @@ export function App() {
             Feeds are generated from public GitHub activity. Nothing is stored and no account is
             required.
           </p>
+          <a
+            className="site-footer__link"
+            href="https://github.com/schalkneethling/ossreleasefeed-v2/issues"
+            rel="noreferrer"
+            target="_blank"
+          >
+            Report an issue
+          </a>
         </div>
       </footer>
     </>

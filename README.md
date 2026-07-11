@@ -12,7 +12,9 @@ Provide a GitHub username or a set of topics, configure your preferences, and ge
 
 ## Status
 
-Under active development. Not yet in public beta.
+In public beta. Things may still change, and you may hit rough edges — please
+[report an issue](https://github.com/schalkneethling/ossreleasefeed-v2/issues)
+if you do (there's also a link in the app's footer).
 
 ## Tech
 
@@ -21,7 +23,10 @@ Under active development. Not yet in public beta.
 
 ## Contributing
 
-Not open for contributions yet. Come back once the initial beta is out.
+Beta is out, but there's no formal contribution process yet — code PRs
+aren't being accepted for now. Bug reports and feedback via
+[issues](https://github.com/schalkneethling/ossreleasefeed-v2/issues) are
+very welcome.
 
 ## License
 
