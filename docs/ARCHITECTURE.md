@@ -35,14 +35,15 @@ flowchart TD
     Users --> GitHub
     Starred --> GitHub
 
-    Worker -. uncaught errors .-> Sentry
-    SPA -. uncaught errors .-> Sentry
+    Worker -. captured errors .-> Sentry
+    SPA -. captured errors .-> Sentry
 ```
 
 `/feed/*` is unauthenticated and CORS-free (it's consumed by feed readers, not
-the browser's `fetch`). `/api/*` is locked to an origin allow-list (production
-domains plus the `*.ossreleasefeed.pages.dev` preview-deploy pattern) — see
-`worker/src/index.ts`.
+the browser's `fetch`). `/api/*` remains publicly accessible, but it is
+CORS-enabled only for an origin allow-list (the production domains plus the
+`*.ossreleasefeed.pages.dev` preview-deploy pattern) so only those browser
+origins receive readable cross-origin responses — see `worker/src/index.ts`.
 
 ## Feed request flow
 
@@ -76,11 +77,12 @@ sequenceDiagram
             W->>W: diff against previous snapshot
             alt no new entries and a previous snapshot exists
                 W->>W: reuse previous entries
+                W->>C: put(request, response)
             else new or first-ever fetch
                 W->>W: merge fresh + previous, cap at 250 entries
+                W->>C: put(request, response)
+                W->>C: put(snapshot request, atom snapshot)
             end
-            W->>C: put(request, response)
-            W->>C: put(snapshot request, atom snapshot)
             W-->>R: 200 feed body
         else GitHub rate-limited and a previous snapshot exists
             G-->>W: rate limit error
