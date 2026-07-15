@@ -21,6 +21,9 @@ if you do (there's also a link in the app's footer).
 - **Frontend:** React 19, Vite, standard CSS — hosted on Cloudflare Pages
 - **Backend:** Cloudflare Worker, Hono, Effect, TypeScript
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams of the request
+flow, the GitHub subrequest budget, and the feed builder UI states.
+
 ## Contributing
 
 Beta is out, but there's no formal contribution process yet — code PRs
