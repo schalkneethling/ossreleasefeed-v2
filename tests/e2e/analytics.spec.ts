@@ -7,9 +7,9 @@ const topicsFixture = [{ name: "react", display_name: "React", short_description
 const fulfillTopics = (route: Route) => route.fulfill({ json: topicsFixture });
 
 const stubUmami = async (page: Page) => {
-  // The real umami script loads asynchronously from cloud.umami.is and would
+  // The real Umami script loads asynchronously and would
   // overwrite window.umami after addInitScript runs, clobbering the stub.
-  await page.route("https://cloud.umami.is/script.js", (route) => route.abort());
+  await page.route("https://analytics.schalkneethling.com/analytics.js", (route) => route.abort());
   await page.addInitScript(() => {
     const events: { name: string; data?: Record<string, unknown> }[] = [];
     Object.assign(window, { __umamiEvents: events });
