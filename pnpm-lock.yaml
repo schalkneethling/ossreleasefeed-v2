@@ -107,7 +107,7 @@ importers:
     dependencies:
       '@hono/standard-validator':
         specifier: ^0.2.0
-        version: 0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.28)
+        version: 0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.30)
       '@octokit/rest':
         specifier: ^22.0.0
         version: 22.0.1
@@ -121,8 +121,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       hono:
-        specifier: ^4.9.6
-        version: 4.12.28
+        specifier: ^4.12.30
+        version: 4.12.30
       sax:
         specifier: ^1.5.0
         version: 1.6.0
@@ -1726,8 +1726,8 @@ packages:
   headers-polyfill@5.0.1:
     resolution: {integrity: sha512-1TJ6Fih/b8h5TIcv+1+Hw0PDQWJTKDKzFZzcKOiW1wJza3XoAQlkCuXLbymPYB8+ZQyw8mHvdw560e8zVFIWyA==}
 
-  hono@4.12.28:
-    resolution: {integrity: sha512-YwUvVpSF7m1yOblFPrU3Hbo8XhPheBoiyfGuII6z19LnOr6JpDnyyp7LFNrfV56wS8tpvtBFGRISHN02pDdLOA==}
+  hono@4.12.30:
+    resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
     engines: {node: '>=16.9.0'}
 
   hookified@1.15.1:
@@ -2856,10 +2856,10 @@ snapshots:
 
   '@fontsource/ibm-plex-mono@5.2.7': {}
 
-  '@hono/standard-validator@0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.28)':
+  '@hono/standard-validator@0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.30)':
     dependencies:
       '@standard-schema/spec': 1.1.0
-      hono: 4.12.28
+      hono: 4.12.30
 
   '@img/colour@1.1.0': {}
 
@@ -3875,7 +3875,7 @@ snapshots:
       '@types/set-cookie-parser': 2.4.10
       set-cookie-parser: 3.1.2
 
-  hono@4.12.28: {}
+  hono@4.12.30: {}
 
   hookified@1.15.1: {}
 
