@@ -96,7 +96,7 @@ jobs:
 
       - name: Setup pnpm
         if: steps.check-secrets.outputs.configured == 'true'
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v6.0.9
         with:
           version: 11.9.0
 
