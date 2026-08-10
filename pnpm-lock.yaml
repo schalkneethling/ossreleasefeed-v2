@@ -107,7 +107,7 @@ importers:
     dependencies:
       '@hono/standard-validator':
         specifier: ^0.2.0
-        version: 0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.34)
+        version: 0.2.3(@standard-schema/spec@1.1.0)(hono@4.13.0)
       '@octokit/rest':
         specifier: ^22.0.0
         version: 22.0.1
@@ -121,8 +121,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       hono:
-        specifier: ^4.12.34
-        version: 4.12.34
+        specifier: ^4.13.0
+        version: 4.13.0
       sax:
         specifier: ^1.5.0
         version: 1.6.0
@@ -1727,8 +1727,8 @@ packages:
   headers-polyfill@5.0.1:
     resolution: {integrity: sha512-1TJ6Fih/b8h5TIcv+1+Hw0PDQWJTKDKzFZzcKOiW1wJza3XoAQlkCuXLbymPYB8+ZQyw8mHvdw560e8zVFIWyA==}
 
-  hono@4.12.34:
-    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+  hono@4.13.0:
+    resolution: {integrity: sha512-jhunvfHWxd7J5EFfSgH4xsYJzSe/lfqbUCxiyyeaQasUsXeEHXtzVid+7EOGByc5JnFa23SSFL3Y2RV/z1T+eQ==}
     engines: {node: '>=16.9.0'}
 
   hookified@1.15.1:
@@ -1995,8 +1995,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@3.3.17:
-    resolution: {integrity: sha512-xQLf0A3HOMlgHq0n247/LRuAOYmB7dXJ/DvAxGvsSBij45XtBSmQycu+F8ODbHwns/XyFZagyL1+J0Offw1E0g==}
+  nanoid@3.3.18:
+    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -2857,10 +2857,10 @@ snapshots:
 
   '@fontsource/ibm-plex-mono@5.2.7': {}
 
-  '@hono/standard-validator@0.2.3(@standard-schema/spec@1.1.0)(hono@4.12.34)':
+  '@hono/standard-validator@0.2.3(@standard-schema/spec@1.1.0)(hono@4.13.0)':
     dependencies:
       '@standard-schema/spec': 1.1.0
-      hono: 4.12.34
+      hono: 4.13.0
 
   '@img/colour@1.1.0': {}
 
@@ -3881,7 +3881,7 @@ snapshots:
       '@types/set-cookie-parser': 2.4.10
       set-cookie-parser: 3.1.2
 
-  hono@4.12.34: {}
+  hono@4.13.0: {}
 
   hookified@1.15.1: {}
 
@@ -4102,7 +4102,7 @@ snapshots:
 
   nanoid@3.3.15: {}
 
-  nanoid@3.3.17: {}
+  nanoid@3.3.18: {}
 
   node-releases@2.0.50: {}
 
@@ -4218,7 +4218,7 @@ snapshots:
 
   postcss@8.5.26:
     dependencies:
-      nanoid: 3.3.17
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
