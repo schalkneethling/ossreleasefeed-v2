@@ -12,11 +12,11 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@sentry/react": "^10.65.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/react": "^19.1.13",
-    "@types/react-dom": "^19.1.9",
+    "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.0.2",
     "babel-plugin-react-compiler": "^19.1.0-rc.3",
     "vite": "^8.1.4"
