@@ -1,9 +1,11 @@
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../../worker/src/index";
+import { DEFAULT_FEED_DRAFT } from "../../worker/src/assistant/contracts";
 import { encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
 import { captureFeedError } from "../../worker/src/lib/sentry";
+import type { WorkerBindings } from "../../worker/src/lib/types";
 import { encodeRawConfig } from "../helpers";
 import { server } from "./setup";
 
@@ -12,7 +14,7 @@ vi.mock("../../worker/src/lib/sentry", () => ({
   sentryOptions: () => undefined,
 }));
 
-const env = {
+const env: WorkerBindings = {
   APP_NAME: "ossreleasefeed",
   GITHUB_PAT: "test-token",
 };
@@ -22,7 +24,64 @@ const executionContext = {
   waitUntil() {},
 } as ExecutionContext;
 
-const fetchApp = (url: string) => app.fetch(new Request(url), env, executionContext);
+const fetchApp = (url: string, init?: RequestInit, bindings: WorkerBindings = env) =>
+  app.fetch(new Request(url, init), bindings, executionContext);
+
+const experimentKey = "test-experiment-key-1234";
+
+const makeAssistantEnv = ({
+  enabled = true,
+  aiResponse = {
+    intent: "create-or-update-feed",
+    proposedState: "ready",
+    draftPatch: {
+      source: "topics",
+      topics: ["css", "javascript", "typescript"],
+      ttl: 86400,
+      activityType: "releases",
+    },
+  },
+  clientAllowed = true,
+  networkAllowed = true,
+}: {
+  enabled?: boolean;
+  aiResponse?: unknown;
+  clientAllowed?: boolean;
+  networkAllowed?: boolean;
+} = {}) => {
+  const getBooleanValue = vi.fn<
+    (flag: string, defaultValue: boolean, context: Record<string, string>) => Promise<boolean>
+  >(async () => enabled);
+  const run = vi.fn<
+    (
+      model: string,
+      input: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ) => Promise<unknown>
+  >(async () => ({ response: aiResponse }));
+  const clientLimit = vi.fn<(options: { key: string }) => Promise<{ success: boolean }>>(
+    async () => ({ success: clientAllowed }),
+  );
+  const networkLimit = vi.fn<(options: { key: string }) => Promise<{ success: boolean }>>(
+    async () => ({ success: networkAllowed }),
+  );
+  const bindings: WorkerBindings = {
+    ...env,
+    FLAGS: { getBooleanValue } as unknown as Flagship,
+    AI: { run },
+    ASSISTANT_CLIENT_RATE_LIMITER: { limit: clientLimit },
+    ASSISTANT_NETWORK_RATE_LIMITER: { limit: networkLimit },
+  };
+
+  return { bindings, getBooleanValue, run, clientLimit, networkLimit };
+};
+
+const assistantRequest = (message: string) => ({
+  message,
+  history: [],
+  state: "idle" as const,
+  draft: DEFAULT_FEED_DRAFT,
+});
 
 const atomFixture = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -366,6 +425,359 @@ describe("GET /api/topics", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400");
     expect(payload[0].name).toBe("javascript");
+  });
+});
+
+describe("adaptive feed experiment", () => {
+  it("fails closed with no-store when Flagship is unavailable", async () => {
+    const response = await fetchApp("https://example.com/api/experiments", {
+      headers: { "X-Experiment-Key": experimentKey },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ adaptiveFeedBuilder: false });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("evaluates the Flagship flag with a sticky key and preview surface", async () => {
+    const { bindings, getBooleanValue } = makeAssistantEnv();
+    const response = await fetchApp(
+      "https://worker.example.com/api/experiments",
+      {
+        headers: {
+          Origin: "https://feature-branch.ossreleasefeed.pages.dev",
+          "X-Experiment-Key": experimentKey,
+        },
+      },
+      bindings,
+    );
+
+    await expect(response.json()).resolves.toEqual({ adaptiveFeedBuilder: true });
+    expect(getBooleanValue).toHaveBeenCalledWith("adaptive-feed-builder", false, {
+      experimentKey,
+      surface: "preview",
+    });
+  });
+
+  it("permits the assistant CORS preflight and experiment-key header locally", async () => {
+    const response = await fetchApp("http://127.0.0.1:8787/api/assistant/turn", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type,x-experiment-key",
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(response.headers.get("Access-Control-Allow-Methods")).toContain("POST");
+    expect(response.headers.get("Access-Control-Allow-Headers")).toContain("X-Experiment-Key");
+    expect(response.headers.get("Access-Control-Expose-Headers")).toContain("Retry-After");
+  });
+});
+
+describe("POST /api/assistant/turn", () => {
+  const postAssistant = (
+    body: unknown,
+    bindings: WorkerBindings,
+    extraHeaders: Record<string, string> = {},
+  ) =>
+    fetchApp(
+      "http://127.0.0.1:8787/api/assistant/turn",
+      {
+        method: "POST",
+        headers: {
+          Origin: "http://localhost:5173",
+          "Content-Type": "application/json",
+          "X-Experiment-Key": experimentKey,
+          ...extraHeaders,
+        },
+        body: JSON.stringify(body),
+      },
+      bindings,
+    );
+
+  it("returns 404 before inference when the runtime flag is disabled", async () => {
+    const { bindings, run } = makeAssistantEnv({ enabled: false });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(404);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("creates a validated canonical topic feed URL", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv();
+    const response = await postAssistant(
+      assistantRequest(
+        "Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours.",
+      ),
+      bindings,
+    );
+    const payload = await response.json();
+    const expectedToken = encodeFeedConfig({
+      source: "topics",
+      topics: ["css", "javascript", "typescript"],
+      topicOperator: "or",
+      activityType: "releases",
+      ttl: 86400,
+      format: "atom",
+    });
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: {
+        source: "topics",
+        topics: ["css", "javascript", "typescript"],
+        ttl: 86400,
+      },
+      issues: [],
+      feedUrl: `http://127.0.0.1:8787/feed/${expectedToken}`,
+    });
+    expect(run).toHaveBeenCalledWith(
+      "@cf/meta/llama-3.1-8b-instruct-fast",
+      expect.objectContaining({
+        temperature: 0,
+        response_format: expect.objectContaining({ type: "json_schema" }),
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(clientLimit).toHaveBeenCalledWith({ key: experimentKey });
+    expect(networkLimit).toHaveBeenCalledWith({ key: "unknown-network" });
+  });
+
+  it("rejects an invalid model decision without validating topics", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: { source: "topics", topics: ["css"] },
+        unexpected: "field",
+      },
+    });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(502);
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("rejects an illegal model state transition without validating topics", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "choose-repos",
+        draftPatch: {
+          source: "topics",
+          topics: ["css"],
+          activityType: "releases",
+          ttl: 3600,
+        },
+      },
+    });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(502);
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("returns to topic editing and no URL for a missing GitHub topic", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", () => HttpResponse.json({ items: [] })),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: { source: "topics", topics: ["not-a-real-topic"] },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a not-a-real-topic feed"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("edit-topics");
+    expect(payload.feedUrl).toBeNull();
+    expect(payload.issues).toEqual(["Check: not-a-real-topic"]);
+  });
+
+  it("answers capability questions without inventing a feed", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "explain-capabilities",
+        proposedState: "choose-source",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("What type of feeds can I create?"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("choose-source");
+    expect(payload.feedUrl).toBeNull();
+    expect(payload.message).toContain("GitHub topic");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("surfaces topic controls for an incomplete topic request", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "edit-topics",
+        draftPatch: { source: "topics", topics: [] },
+      },
+    });
+    const response = await postAssistant(assistantRequest("I want a topic feed"), bindings);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-topics",
+      draft: { source: "topics", topics: [] },
+      issues: ["Include at least one topic."],
+      feedUrl: null,
+    });
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("applies and revalidates a correction to an existing topic feed", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: { topics: ["typescript"], ttl: 86400 },
+      },
+    });
+    const response = await postAssistant(
+      {
+        message: "Use TypeScript instead and update every 24 hours",
+        history: [
+          { role: "user", content: "Create a CSS feed" },
+          { role: "assistant", content: "Your topic feed is ready." },
+        ],
+        state: "ready",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css"],
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: { topics: ["typescript"], ttl: 86400 },
+      issues: [],
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+  });
+
+  it("validates topics before offering supported settings for an unsupported interval", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "unsupported",
+        proposedState: "edit-settings",
+        draftPatch: { source: "topics", topics: ["css"] },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a CSS feed that updates every 12 hours"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: { source: "topics", topics: ["css"] },
+      issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
+      feedUrl: null,
+    });
+  });
+
+  it("fails safely when GitHub topic validation is unavailable", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", () =>
+        HttpResponse.json({ message: "Service unavailable" }, { status: 503 }),
+      ),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: { source: "topics", topics: ["css"] },
+      },
+    });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Topic validation temporarily unavailable",
+    });
+  });
+
+  it("applies both rate limits before invoking Workers AI", async () => {
+    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
+      clientAllowed: false,
+    });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(clientLimit).toHaveBeenCalledOnce();
+    expect(networkLimit).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown request fields before invoking Workers AI", async () => {
+    const { bindings, run } = makeAssistantEnv();
+    const response = await postAssistant(
+      { ...assistantRequest("Create a CSS feed"), unknown: true },
+      bindings,
+    );
+
+    expect(response.status).toBe(400);
+    expect(run).not.toHaveBeenCalled();
   });
 });
 

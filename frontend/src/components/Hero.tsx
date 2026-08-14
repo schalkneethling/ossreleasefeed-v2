@@ -2,10 +2,11 @@ import "../styles/hero.css";
 
 type HeroProps = {
   builderStarted: boolean;
+  experimentEnabled?: boolean;
   onCreateFeed: () => void;
 };
 
-export function Hero({ builderStarted, onCreateFeed }: HeroProps) {
+export function Hero({ builderStarted, experimentEnabled = false, onCreateFeed }: HeroProps) {
   return (
     <section aria-labelledby="hero-title" className="hero">
       <p aria-hidden="true" className="hero__eyebrow">
@@ -19,7 +20,7 @@ export function Hero({ builderStarted, onCreateFeed }: HeroProps) {
         care about, and get one permanent feed URL. No account, no email — just a URL that works in
         any reader.
       </p>
-      {builderStarted ? null : (
+      {builderStarted || experimentEnabled ? null : (
         <button className="hero__cta" onClick={onCreateFeed} type="button">
           Create feed
         </button>

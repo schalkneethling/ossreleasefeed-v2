@@ -4,6 +4,7 @@ import { MAX_TOPICS } from "../lib/constraints";
 import "../styles/featured-topics.css";
 
 type FeaturedTopicsProps = {
+  active?: boolean;
   selectedTopics: readonly string[];
   onToggleTopic: (name: string) => void;
 };
@@ -13,11 +14,19 @@ type FetchStatus =
   | { state: "error" }
   | { state: "ready"; topics: FeaturedTopic[] };
 
-export function FeaturedTopics({ selectedTopics, onToggleTopic }: FeaturedTopicsProps) {
+export function FeaturedTopics({
+  active = true,
+  selectedTopics,
+  onToggleTopic,
+}: FeaturedTopicsProps) {
   const [status, setStatus] = useState<FetchStatus>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     const controller = new AbortController();
 
     setStatus({ state: "loading" });
@@ -30,7 +39,7 @@ export function FeaturedTopics({ selectedTopics, onToggleTopic }: FeaturedTopics
       });
 
     return () => controller.abort();
-  }, [attempt]);
+  }, [active, attempt]);
 
   const limitReached = selectedTopics.length >= MAX_TOPICS;
 
@@ -38,10 +47,10 @@ export function FeaturedTopics({ selectedTopics, onToggleTopic }: FeaturedTopics
     <fieldset className="featured-topics">
       <legend className="featured-topics__legend">Featured topics</legend>
       {status.state === "loading" ? (
-        <p className="featured-topics__loading" role="status">
+        <output className="featured-topics__loading">
           <span aria-hidden="true" className="featured-topics__spinner" />
           Loading featured topics…
-        </p>
+        </output>
       ) : null}
       {status.state === "error" ? (
         <div className="featured-topics__error" role="alert">

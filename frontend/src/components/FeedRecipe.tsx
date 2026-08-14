@@ -1,0 +1,49 @@
+import type { FeedDraft } from "../lib/assistant";
+import { TTL_OPTIONS } from "./FeedConfigPanel";
+
+const activityLabels: Record<FeedDraft["activityType"], string> = {
+  releases: "Releases only",
+  all: "Releases, issues, and pull requests",
+};
+
+export function FeedRecipe({ draft }: { draft: FeedDraft }) {
+  const ttl = TTL_OPTIONS.find((option) => option.value === draft.ttl)?.label ?? "Unknown";
+  const source = draft.source === "topics" ? "GitHub topics" : "Not selected";
+  const topicExpression =
+    draft.topics.length > 0 ? draft.topics.join(" OR ") : "Waiting for topics";
+
+  return (
+    <section aria-labelledby="feed-recipe-title" className="feed-recipe">
+      <div className="feed-recipe__heading">
+        <p className="feed-recipe__eyebrow">Assembling</p>
+        <h3 className="feed-recipe__title" id="feed-recipe-title">
+          Feed recipe
+        </h3>
+      </div>
+      <dl className="feed-recipe__ledger">
+        <div className="feed-recipe__row">
+          <dt>Source</dt>
+          <dd>{source}</dd>
+        </div>
+        <div className="feed-recipe__row">
+          <dt>Match</dt>
+          <dd className="feed-recipe__data">{topicExpression}</dd>
+        </div>
+        <div className="feed-recipe__row">
+          <dt>Activity</dt>
+          <dd>{activityLabels[draft.activityType]}</dd>
+        </div>
+        <div className="feed-recipe__row">
+          <dt>Refresh</dt>
+          <dd>{ttl}</dd>
+        </div>
+        <div className="feed-recipe__row">
+          <dt>Output</dt>
+          <dd className="feed-recipe__output">
+            <span aria-hidden="true" className="feed-recipe__rss-dot" /> Atom feed
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}

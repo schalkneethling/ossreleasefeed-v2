@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { trackEvent } from "../lib/analytics";
+import type { FeedDraft, FeedTtl } from "../lib/assistant";
 
-const TTL_OPTIONS = [
+export const TTL_OPTIONS: ReadonlyArray<{ label: string; value: FeedTtl }> = [
   { label: "1 hour", value: 3600 },
   { label: "6 hours", value: 21600 },
   { label: "24 hours", value: 86400 },
@@ -11,34 +12,28 @@ const TTL_OPTIONS = [
 const COPY_RESET_MS = 2000;
 
 export function FeedConfigPanel({
+  activityType,
+  ttl,
   disabled = false,
   onGenerate,
-  onConfigChange,
+  onActivityChange,
+  onTtlChange,
 }: {
+  activityType: FeedDraft["activityType"];
+  ttl: FeedTtl;
   disabled?: boolean;
-  onGenerate: (activityType: "releases" | "all", ttl: number) => void;
-  onConfigChange: () => void;
+  onGenerate: () => void;
+  onActivityChange: (activityType: FeedDraft["activityType"]) => void;
+  onTtlChange: (ttl: FeedTtl) => void;
 }) {
-  const [activityType, setActivityType] = useState<"releases" | "all">("releases");
-  const [ttl, setTtl] = useState(3600);
   const panelId = useId();
   const ttlId = useId();
-
-  const handleActivityChange = (value: "releases" | "all") => {
-    setActivityType(value);
-    onConfigChange();
-  };
-
-  const handleTtlChange = (value: number) => {
-    setTtl(value);
-    onConfigChange();
-  };
 
   return (
     <div className="feed-config">
       <h3 className="feed-config__title">Configure your feed</h3>
       <div className="feed-config__fields">
-        <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
+        <fieldset className="feed-config__fieldset">
           <legend className="feed-config__label">Activity type</legend>
           <div className="feed-config__radio-group">
             <div className="feed-config__radio-option">
@@ -46,7 +41,7 @@ export function FeedConfigPanel({
                 checked={activityType === "releases"}
                 id={`${panelId}-activity-releases`}
                 name={`${panelId}-activityType`}
-                onChange={() => handleActivityChange("releases")}
+                onChange={() => onActivityChange("releases")}
                 type="radio"
                 value="releases"
               />
@@ -57,7 +52,7 @@ export function FeedConfigPanel({
                 checked={activityType === "all"}
                 id={`${panelId}-activity-all`}
                 name={`${panelId}-activityType`}
-                onChange={() => handleActivityChange("all")}
+                onChange={() => onActivityChange("all")}
                 type="radio"
                 value="all"
               />
@@ -75,7 +70,7 @@ export function FeedConfigPanel({
           <select
             className="feed-config__select"
             id={ttlId}
-            onChange={(e) => handleTtlChange(Number(e.target.value))}
+            onChange={(event) => onTtlChange(Number(event.target.value) as FeedTtl)}
             value={ttl}
           >
             {TTL_OPTIONS.map((opt) => (
@@ -90,7 +85,7 @@ export function FeedConfigPanel({
       <button
         className="feed-config__submit"
         disabled={disabled}
-        onClick={() => onGenerate(activityType, ttl)}
+        onClick={onGenerate}
         type="button"
       >
         Generate feed URL
