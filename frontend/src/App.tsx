@@ -30,7 +30,10 @@ export function App() {
   const [workspace, dispatch] = useReducer(adaptiveWorkspaceReducer, DEFAULT_ADAPTIVE_WORKSPACE);
   const experimentKeyRef = useRef(getExperimentKey());
   const restoredRef = useRef(false);
+  const workspaceRef = useRef(workspace);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(10_000);
+
+  workspaceRef.current = workspace;
 
   useEffect(() => {
     const controller = beginCycle();
@@ -38,10 +41,12 @@ export function App() {
     fetchExperiments(experimentKeyRef.current, controller.signal)
       .then(({ adaptiveFeedBuilder }) => {
         if (adaptiveFeedBuilder && !restoredRef.current) {
-          const restored = loadAdaptiveWorkspace();
+          if (workspaceRef.current === DEFAULT_ADAPTIVE_WORKSPACE) {
+            const restored = loadAdaptiveWorkspace();
 
-          if (restored) {
-            dispatch({ type: "restore", workspace: restored });
+            if (restored) {
+              dispatch({ type: "restore", workspace: restored });
+            }
           }
 
           restoredRef.current = true;

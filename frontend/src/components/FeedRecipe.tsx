@@ -8,7 +8,14 @@ const activityLabels: Record<FeedDraft["activityType"], string> = {
 
 export function FeedRecipe({ draft }: { draft: FeedDraft }) {
   const ttl = TTL_OPTIONS.find((option) => option.value === draft.ttl)?.label ?? "Unknown";
-  const source = draft.source === "topics" ? "GitHub topics" : "Not selected";
+  let source = "Not selected";
+
+  if (draft.source === "topics") {
+    source = "GitHub topics";
+  } else if (draft.source === "starred") {
+    source = "GitHub starred repositories";
+  }
+
   const topicExpression =
     draft.topics.length > 0 ? draft.topics.join(" OR ") : "Waiting for topics";
 

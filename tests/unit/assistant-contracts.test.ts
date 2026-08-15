@@ -4,7 +4,7 @@ import {
   isAssistantTurnRequest,
   isModelDecision,
 } from "../../worker/src/assistant/contracts";
-import { isLegalTransition } from "../../worker/src/assistant/state";
+import { applyDraftPatch, isLegalTransition } from "../../worker/src/assistant/state";
 
 describe("assistant contracts", () => {
   it("accepts the version-one request contract", () => {
@@ -46,6 +46,28 @@ describe("assistant contracts", () => {
     ).toBe(false);
   });
 
+  it("accepts request values at their message and history boundaries", () => {
+    expect(
+      isAssistantTurnRequest({
+        message: "x".repeat(1_000),
+        history: Array.from({ length: 6 }, () => ({ role: "user", content: "next" })),
+        state: "idle",
+        draft: DEFAULT_FEED_DRAFT,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects an empty request message", () => {
+    expect(
+      isAssistantTurnRequest({
+        message: "",
+        history: [],
+        state: "idle",
+        draft: DEFAULT_FEED_DRAFT,
+      }),
+    ).toBe(false);
+  });
+
   it("rejects model URLs and unknown model fields", () => {
     expect(
       isModelDecision({
@@ -55,6 +77,26 @@ describe("assistant contracts", () => {
         feedUrl: "https://malicious.example/feed",
       }),
     ).toBe(false);
+  });
+
+  it("accepts a valid model decision without a feed URL", () => {
+    expect(
+      isModelDecision({
+        intent: "create-or-update-feed",
+        proposedState: "edit-topics",
+        draftPatch: { source: "topics", topics: [] },
+        framing: "Choose a topic.",
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves an explicitly cleared source instead of inferring topics", () => {
+    expect(
+      applyDraftPatch(
+        { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+        { source: null },
+      ),
+    ).toMatchObject({ source: null, topics: ["css"] });
   });
 
   it("allows a complete request after the capability source choice", () => {

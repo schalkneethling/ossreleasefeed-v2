@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Hono } from "hono";
 import {
   ADAPTIVE_STATES,
-  ALLOWED_TTLS,
+  FEED_TTLS,
   ASSISTANT_INTENTS,
   type AssistantTurnResponse,
   type FeedDraft,
@@ -60,7 +60,7 @@ const MODEL_RESPONSE_SCHEMA = {
           ],
         },
         activityType: { type: "string", enum: ["releases", "all"] },
-        ttl: { type: "number", enum: ALLOWED_TTLS },
+        ttl: { type: "number", enum: FEED_TTLS },
         format: { const: "atom" },
         topicOperator: { const: "or" },
       },
@@ -112,13 +112,44 @@ const readBody = async (request: Request): Promise<unknown> => {
     throw new RangeError("body-too-large");
   }
 
-  const body = await request.text();
+  if (!request.body) {
+    return JSON.parse("");
+  }
 
-  if (new TextEncoder().encode(body).byteLength > MAX_BODY_BYTES) {
+  const reader = request.body.getReader();
+  const bytes = new Uint8Array(MAX_BODY_BYTES);
+  let byteLength = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (value.byteLength > MAX_BODY_BYTES - byteLength) {
+        try {
+          await reader.cancel("body-too-large");
+        } catch {
+          // The size error remains authoritative if stream cancellation also fails.
+        }
+
+        throw new RangeError("body-too-large");
+      }
+
+      bytes.set(value, byteLength);
+      byteLength += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (byteLength > MAX_BODY_BYTES) {
     throw new RangeError("body-too-large");
   }
 
-  return JSON.parse(body);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(0, byteLength)));
 };
 
 const checkRateLimits = async (ctx: Parameters<typeof evaluateAdaptiveFeedBuilder>[0]) => {
@@ -246,7 +277,7 @@ assistantRoutes.post("/turn", async (ctx) => {
 
     decision = parseModelDecision(result);
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") {
       return ctx.body(null, 408);
     }
 

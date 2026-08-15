@@ -46,7 +46,7 @@ export function FeaturedTopics({
   return (
     <fieldset className="featured-topics">
       <legend className="featured-topics__legend">Featured topics</legend>
-      {status.state === "loading" ? (
+      {active && status.state === "loading" ? (
         <output className="featured-topics__loading">
           <span aria-hidden="true" className="featured-topics__spinner" />
           Loading featured topics…

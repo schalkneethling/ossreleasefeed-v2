@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   adaptiveWorkspaceReducer,
   ADAPTIVE_SESSION_MAX_AGE_MS,
@@ -6,6 +6,7 @@ import {
   capTranscript,
   DEFAULT_ADAPTIVE_WORKSPACE,
   parsePersistedWorkspace,
+  persistAdaptiveWorkspace,
 } from "../../frontend/src/lib/adaptive-session";
 
 const readyResponse = {
@@ -21,6 +22,10 @@ const readyResponse = {
 };
 
 describe("adaptive workspace", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("shares controlled draft changes and clears a stale generated URL", () => {
     const withTopics = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
       type: "set-topics",
@@ -137,5 +142,24 @@ describe("adaptive workspace", () => {
         now,
       ),
     ).toBeNull();
+  });
+
+  it("caps composer and issue data before writing a persisted session", () => {
+    const setItem = vi.fn<(key: string, value: string) => void>();
+    vi.stubGlobal("window", {
+      localStorage: { setItem },
+    });
+
+    persistAdaptiveWorkspace({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      composer: "x".repeat(10_100),
+      issues: Array.from({ length: 8 }, (_, index) => `Issue ${index}`),
+    });
+
+    const serialized = setItem.mock.calls[0]?.[1] as string;
+    const persisted = JSON.parse(serialized) as { composer: string; issues: string[] };
+
+    expect(persisted.composer).toHaveLength(10_000);
+    expect(persisted.issues).toEqual(["Issue 0", "Issue 1", "Issue 2", "Issue 3", "Issue 4"]);
   });
 });

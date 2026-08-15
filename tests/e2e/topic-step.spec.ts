@@ -12,6 +12,12 @@ const topicsFixture = [
 
 const fulfillTopics = (route: Route) => route.fulfill({ json: topicsFixture });
 
+const fulfillValidTopic = (route: Route) => {
+  const name = new URL(route.request().url()).searchParams.get("q");
+
+  return route.fulfill({ json: { exists: true, name } });
+};
+
 const gotoTopicStep = async (page: Page) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Create feed" }).click();
@@ -99,10 +105,7 @@ test.describe("featured topics grid", () => {
 test.describe("custom topic input", () => {
   test("valid topic enables 'Add topic' and adds a tag on click", async ({ page }) => {
     await page.route("**/api/topics/featured", fulfillTopics);
-    await page.route("**/api/topics/validate*", (route) => {
-      const name = new URL(route.request().url()).searchParams.get("q");
-      return route.fulfill({ json: { exists: true, name } });
-    });
+    await page.route("**/api/topics/validate*", fulfillValidTopic);
     await gotoTopicStep(page);
 
     await page.getByLabel("Add a custom topic").fill("web-components");
@@ -118,10 +121,7 @@ test.describe("custom topic input", () => {
 
   test("Enter key adds a valid topic", async ({ page }) => {
     await page.route("**/api/topics/featured", fulfillTopics);
-    await page.route("**/api/topics/validate*", (route) => {
-      const name = new URL(route.request().url()).searchParams.get("q");
-      return route.fulfill({ json: { exists: true, name } });
-    });
+    await page.route("**/api/topics/validate*", fulfillValidTopic);
     await gotoTopicStep(page);
 
     await page.getByLabel("Add a custom topic").fill("game-dev");
@@ -145,10 +145,7 @@ test.describe("custom topic input", () => {
 
   test("duplicate topic shows a duplicate error", async ({ page }) => {
     await page.route("**/api/topics/featured", fulfillTopics);
-    await page.route("**/api/topics/validate*", (route) => {
-      const name = new URL(route.request().url()).searchParams.get("q");
-      return route.fulfill({ json: { exists: true, name } });
-    });
+    await page.route("**/api/topics/validate*", fulfillValidTopic);
     await gotoTopicStep(page);
 
     // Add a topic first
@@ -229,10 +226,7 @@ test.describe("feed config and URL generation", () => {
 
   test("full topic flow has no critical or serious axe violations", async ({ page }) => {
     await page.route("**/api/topics/featured", fulfillTopics);
-    await page.route("**/api/topics/validate*", (route) => {
-      const name = new URL(route.request().url()).searchParams.get("q");
-      return route.fulfill({ json: { exists: true, name } });
-    });
+    await page.route("**/api/topics/validate*", fulfillValidTopic);
     await gotoTopicStep(page);
 
     await page.getByRole("checkbox", { name: "TypeScript" }).check();

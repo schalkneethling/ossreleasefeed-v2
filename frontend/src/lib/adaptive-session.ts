@@ -7,6 +7,7 @@ import {
   isAdaptiveState,
   isFeedDraft,
   isLegalTransition,
+  isSecureFeedUrl,
 } from "./assistant";
 
 export const ADAPTIVE_SESSION_STORAGE_KEY = "ossreleasefeed:adaptive-session";
@@ -79,35 +80,6 @@ const isHistoryTurn = (value: unknown): value is AssistantHistoryTurn => {
     typeof value.content === "string" &&
     value.content.length <= 1_000
   );
-};
-
-const isFeedUrl = (value: unknown): value is string | null => {
-  if (value === null) {
-    return true;
-  }
-
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  try {
-    const url = new URL(value);
-    const secure = url.protocol === "https:";
-    const loopback =
-      url.protocol === "http:" &&
-      (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]");
-
-    return (
-      (secure || loopback) &&
-      /^\/feed\/[A-Za-z0-9_-]+$/u.test(url.pathname) &&
-      url.username === "" &&
-      url.password === "" &&
-      url.search === "" &&
-      url.hash === ""
-    );
-  } catch {
-    return false;
-  }
 };
 
 export const capTranscript = (
@@ -322,7 +294,7 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
     return false;
   }
 
-  if (!isFeedUrl(value.feedUrl) || !isInteractionMode(value.selectedMode)) {
+  if (!isSecureFeedUrl(value.feedUrl) || !isInteractionMode(value.selectedMode)) {
     return false;
   }
 
@@ -395,6 +367,8 @@ export const persistAdaptiveWorkspace = (workspace: AdaptiveWorkspace, now = Dat
   const persisted: PersistedAdaptiveWorkspace = {
     ...workspace,
     transcript: capTranscript(workspace.transcript),
+    composer: workspace.composer.slice(0, MAX_COMPOSER_CHARACTERS),
+    issues: workspace.issues.slice(0, MAX_ISSUES),
     version: ADAPTIVE_SESSION_VERSION,
     savedAt: now,
   };

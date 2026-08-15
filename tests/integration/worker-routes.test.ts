@@ -43,11 +43,13 @@ const makeAssistantEnv = ({
   },
   clientAllowed = true,
   networkAllowed = true,
+  aiError,
 }: {
   enabled?: boolean;
   aiResponse?: unknown;
   clientAllowed?: boolean;
   networkAllowed?: boolean;
+  aiError?: Error;
 } = {}) => {
   const getBooleanValue = vi.fn<
     (flag: string, defaultValue: boolean, context: Record<string, string>) => Promise<boolean>
@@ -58,7 +60,13 @@ const makeAssistantEnv = ({
       input: Record<string, unknown>,
       options?: { signal?: AbortSignal },
     ) => Promise<unknown>
-  >(async () => ({ response: aiResponse }));
+  >(async () => {
+    if (aiError) {
+      throw aiError;
+    }
+
+    return { response: aiResponse };
+  });
   const clientLimit = vi.fn<(options: { key: string }) => Promise<{ success: boolean }>>(
     async () => ({ success: clientAllowed }),
   );
@@ -778,6 +786,60 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(400);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized streamed body before invoking Workers AI", async () => {
+    const { bindings, run } = makeAssistantEnv();
+    const response = await postAssistant({ message: "x".repeat(9_000) }, bindings);
+
+    expect(response.status).toBe(413);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 without invoking inference when the AI binding is missing", async () => {
+    const { bindings, run } = makeAssistantEnv();
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), {
+      ...bindings,
+      AI: undefined,
+    });
+
+    expect(response.status).toBe(503);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("returns 408 when inference is aborted", async () => {
+    const abortError = new Error("The request was aborted");
+    abortError.name = "AbortError";
+    const { bindings, run } = makeAssistantEnv({ aiError: abortError });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(408);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("returns a recoverable response for starred-repository requests", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "recoverable-error",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from octocat's starred repositories"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "recoverable-error",
+      draft: { source: "starred", username: "octocat" },
+      feedUrl: null,
+      issues: ["Continue with Guide me to build this feed from starred repositories."],
+    });
+    expect(githubCalls).toHaveLength(0);
   });
 });
 

@@ -40,10 +40,7 @@ const isTopicValidation = (value: unknown): value is TopicValidation => {
 
   const validation = value as Record<string, unknown>;
 
-  return (
-    typeof validation.exists === "boolean" &&
-    (validation.name === null || typeof validation.name === "string")
-  );
+  return typeof validation.exists === "boolean" && isNullableString(validation.name);
 };
 
 export const apiUrl = (path: string): string => `${workerBase}${path}`;
@@ -88,9 +85,7 @@ const isUsernameValidation = (value: unknown): value is UsernameValidation => {
 
   const v = value as Record<string, unknown>;
   return (
-    typeof v.exists === "boolean" &&
-    (v.username === null || typeof v.username === "string") &&
-    typeof v.hasStars === "boolean"
+    typeof v.exists === "boolean" && isNullableString(v.username) && typeof v.hasStars === "boolean"
   );
 };
 
@@ -100,8 +95,10 @@ async function apiFetch<T>(
   label: string,
   signal?: AbortSignal,
 ): Promise<T> {
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(url, {
-    signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: requestSignal,
   });
 
   if (!response.ok) {

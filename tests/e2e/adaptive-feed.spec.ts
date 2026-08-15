@@ -25,19 +25,21 @@ test.describe("adaptive feed Phase 2", () => {
   test.beforeEach(async ({ page }) => {
     await page.route("**/api/experiments", async (route) => {
       currentExperimentKey = route.request().headers()["x-experiment-key"];
-      expect(currentExperimentKey).toMatch(experimentKeyPattern);
       await route.fulfill({ json: { adaptiveFeedBuilder: true } });
     });
     await page.route("**/api/topics/featured", (route) => route.fulfill({ json: topicsFixture }));
   });
 
   test("creates a topic feed from one typed request", async ({ page }) => {
+    let assistantExperimentKey = "";
+    let assistantMessage = "";
+
     await page.route("**/api/assistant/turn", async (route) => {
       const request = route.request();
       const body = request.postDataJSON();
 
-      expect(request.headers()["x-experiment-key"]).toBe(currentExperimentKey);
-      expect(body.message).toContain("CSS, JavaScript, and TypeScript");
+      assistantExperimentKey = request.headers()["x-experiment-key"];
+      assistantMessage = body.message;
       await route.fulfill({
         json: {
           state: "ready",
@@ -65,6 +67,9 @@ test.describe("adaptive feed Phase 2", () => {
       .fill("Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours.");
     await page.getByRole("button", { name: "Send request" }).click();
 
+    expect(currentExperimentKey).toMatch(experimentKeyPattern);
+    expect(assistantExperimentKey).toBe(currentExperimentKey);
+    expect(assistantMessage).toContain("CSS, JavaScript, and TypeScript");
     await expect(page.getByText("Your topic feed is ready.", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: /worker\.example\/feed/ })).toHaveAttribute(
       "href",
@@ -255,6 +260,12 @@ test.describe("adaptive feed Phase 2", () => {
 
   test("sends recent history for a correction and replaces the stale URL", async ({ page }) => {
     let requestNumber = 0;
+    let correctionBody: {
+      state?: unknown;
+      draft?: { topics?: unknown };
+      history?: unknown[];
+    } | null = null;
+
     await page.route("**/api/assistant/turn", async (route) => {
       requestNumber += 1;
       const body = route.request().postDataJSON();
@@ -272,9 +283,7 @@ test.describe("adaptive feed Phase 2", () => {
         return;
       }
 
-      expect(body.state).toBe("ready");
-      expect(body.draft.topics).toEqual(["css"]);
-      expect(body.history).toHaveLength(2);
+      correctionBody = body;
       await route.fulfill({
         json: {
           state: "ready",
@@ -295,6 +304,10 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByLabel("Your next message").fill("Use TypeScript and update every 24 hours");
     await page.getByRole("button", { name: "Send request" }).click();
 
+    await expect.poll(() => requestNumber).toBe(2);
+    expect(correctionBody?.state).toBe("ready");
+    expect(correctionBody?.draft?.topics).toEqual(["css"]);
+    expect(correctionBody?.history).toHaveLength(2);
     await expect(page.getByRole("link", { name: /first-token/i })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /second-token/i })).toBeVisible();
     await expect(
@@ -436,5 +449,53 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("article")).toBeVisible();
     await expect(page.getByRole("form", { name: "Ask for a topic feed" })).toBeVisible();
     await expect(page.locator("output[aria-live='polite']")).toHaveCount(2);
+  });
+
+  test("does not restore saved Ask state over a Guided choice made while the flag loads", async ({
+    page,
+  }) => {
+    await page.unroute("**/api/experiments");
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        "ossreleasefeed:adaptive-session",
+        JSON.stringify({
+          version: 1,
+          savedAt: Date.now(),
+          adaptiveState: "edit-topics",
+          draft: {
+            source: "topics",
+            topics: [],
+            username: null,
+            repoSelection: null,
+            activityType: "releases",
+            ttl: 3600,
+            format: "atom",
+            topicOperator: "or",
+          },
+          feedUrl: null,
+          transcript: [],
+          composer: "Saved Ask request",
+          issues: [],
+          selectedMode: "ask",
+          builderStarted: false,
+        }),
+      );
+    });
+    await page.route("**/api/experiments", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await route.fulfill({ json: { adaptiveFeedBuilder: true } });
+    });
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Create feed" }).click();
+    await expect(
+      page.getByRole("region", { name: /how do you want to build your feed/i }),
+    ).toBeVisible();
+
+    await expect(page.getByLabel("Your request")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^guide me/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });

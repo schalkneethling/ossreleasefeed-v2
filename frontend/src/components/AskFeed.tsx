@@ -15,8 +15,6 @@ import { AdaptiveStage } from "./AdaptiveStage";
 import "../styles/adaptive-entry.css";
 
 const REQUEST_TIMEOUT_MS = 15_000;
-const CLIENT_REQUEST_LIMIT = 5;
-const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 type AskFeedProps = {
   active: boolean;
@@ -249,8 +247,8 @@ export function AskFeed({
             {characterFeedback}
           </output>
           <p className="ask-feed__rate-policy">
-            Up to {CLIENT_REQUEST_LIMIT} Ask requests per {RATE_LIMIT_WINDOW_SECONDS} seconds from
-            this browser. A separate shared network limit may stop requests sooner.
+            Ask requests share a server-side network limit. If it is reached, we’ll tell you when to
+            try again.
           </p>
           <div className="ask-feed__actions">
             <button

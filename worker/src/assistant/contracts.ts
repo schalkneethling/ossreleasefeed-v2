@@ -1,14 +1,20 @@
-export const ADAPTIVE_STATES = [
-  "idle",
-  "choose-source",
-  "edit-topics",
-  "enter-username",
-  "choose-repos",
-  "edit-settings",
-  "ready",
-  "recoverable-error",
-] as const;
-export const ALLOWED_TTLS = [3600, 21600, 86400, 604800] as const;
+import {
+  ADAPTIVE_STATES,
+  FEED_TTLS,
+  type AdaptiveState,
+  type FeedDraft,
+  type FeedTtl,
+} from "../../../shared/adaptive-contracts";
+
+export {
+  ADAPTIVE_STATES,
+  DEFAULT_FEED_DRAFT,
+  FEED_TTLS,
+  type AdaptiveState,
+  type FeedDraft,
+  type FeedTtl,
+} from "../../../shared/adaptive-contracts";
+
 export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
   "explain-capabilities",
@@ -32,32 +38,8 @@ const HISTORY_TURN_KEYS = ["role", "content"] as const;
 const MODEL_DECISION_KEYS = ["intent", "proposedState", "draftPatch", "framing"] as const;
 const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
 
-export type AdaptiveState = (typeof ADAPTIVE_STATES)[number];
-export type FeedTtl = (typeof ALLOWED_TTLS)[number];
 export type AssistantIntent = (typeof ASSISTANT_INTENTS)[number];
 export type AssistantRole = "user" | "assistant";
-
-export type FeedDraft = {
-  source: "topics" | "starred" | null;
-  topics: string[];
-  username: string | null;
-  repoSelection: { kind: "all" } | { kind: "subset"; repos: string[] } | null;
-  activityType: "releases" | "all";
-  ttl: FeedTtl;
-  format: "atom";
-  topicOperator: "or";
-};
-
-export const DEFAULT_FEED_DRAFT: FeedDraft = {
-  source: null,
-  topics: [],
-  username: null,
-  repoSelection: null,
-  activityType: "releases",
-  ttl: 3600,
-  format: "atom",
-  topicOperator: "or",
-};
 
 export type AssistantHistoryTurn = {
   role: AssistantRole;
@@ -114,7 +96,7 @@ const isStringArray = (value: unknown, maximumLength: number): value is string[]
 export const isAdaptiveState = (value: unknown): value is AdaptiveState =>
   isOneOf(value, ADAPTIVE_STATES);
 
-const isTtl = (value: unknown): value is FeedTtl => isOneOf(value, ALLOWED_TTLS);
+const isTtl = (value: unknown): value is FeedTtl => isOneOf(value, FEED_TTLS);
 
 const isRepoSelection = (value: unknown): value is FeedDraft["repoSelection"] => {
   if (value === null) {

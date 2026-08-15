@@ -122,6 +122,14 @@ export function TopicEditor({ active, selectedTopics, onTopicsChange }: TopicEdi
   };
 
   const feedbackMessage = () => {
+    if (customStatus === "loading") {
+      return `Checking “${debouncedCustom}”…`;
+    }
+
+    if (customStatus === "valid") {
+      return `“${validatedName ?? debouncedCustom}” is a valid GitHub topic.`;
+    }
+
     if (customStatus === "invalid") {
       return `No GitHub topic found matching “${debouncedCustom}”.`;
     }
@@ -152,7 +160,7 @@ export function TopicEditor({ active, selectedTopics, onTopicsChange }: TopicEdi
         <div className="custom-topic__input-row">
           <div className="custom-topic__input-wrapper">
             <input
-              aria-describedby={hasError ? feedbackId : undefined}
+              aria-describedby={customStatus !== "idle" ? feedbackId : undefined}
               aria-invalid={hasError}
               autoCapitalize="none"
               autoCorrect="off"
