@@ -22,7 +22,9 @@ type AskFeedProps = {
   draft: FeedDraft;
   feedUrl: string | null;
   issues: string[];
+  showUi: boolean;
   state: AdaptiveState;
+  ttlSelected: boolean;
   transcript: AssistantHistoryTurn[];
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onAssistantResult: (userMessage: string, response: AssistantTurnResponse) => void;
@@ -49,7 +51,9 @@ export function AskFeed({
   draft,
   feedUrl,
   issues,
+  showUi,
   state,
+  ttlSelected,
   transcript,
   onActivityChange,
   onAssistantResult,
@@ -61,6 +65,7 @@ export function AskFeed({
   onTopicsChange,
   onTtlChange,
 }: AskFeedProps) {
+  const [conversationOpen, setConversationOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastAnnouncement, setLastAnnouncement] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -116,6 +121,8 @@ export function AskFeed({
           history: transcript.slice(-6),
           state,
           draft,
+          issues,
+          ttlSelected,
         },
         experimentKeyRef.current,
         controller.signal,
@@ -160,6 +167,7 @@ export function AskFeed({
 
   const startOver = () => {
     cancelCycle();
+    setConversationOpen(true);
     setError(null);
     setLastAnnouncement("Started over with an empty feed.");
     setSubmitting(false);
@@ -171,7 +179,6 @@ export function AskFeed({
       <header className="ask-feed__intro">
         <div className="ask-feed__intro-copy">
           <hgroup>
-            <p className="ask-feed__kicker">Adaptive topic builder</p>
             <h2 className="ask-feed__title">Describe, refine, or click</h2>
             <p className="ask-feed__description">
               Ask a question, describe a complete feed, or combine short replies with the controls
@@ -184,39 +191,65 @@ export function AskFeed({
         </button>
       </header>
 
-      {transcript.length > 0 ? (
-        <ol aria-label="Feed builder conversation" className="ask-feed__transcript">
-          {transcript.map((turn, index) => (
-            <li
-              className={`ask-feed__turn ask-feed__turn--${turn.role}`}
-              key={`${turn.role}-${index}`}
-            >
-              <span className="ask-feed__turn-label">
-                {turn.role === "user" ? "You" : "OSSReleaseFeed"}
-              </span>
-              <p>{turn.content}</p>
-            </li>
-          ))}
-        </ol>
-      ) : (
+      {transcript.length === 0 ? (
         <p className="ask-feed__empty">
           Try “What feeds can I create?” or name topics and an update frequency in one request.
         </p>
-      )}
+      ) : null}
 
-      <AdaptiveStage
-        active={active}
-        draft={draft}
-        feedUrl={feedUrl}
-        issues={issues}
-        onActivityChange={onActivityChange}
-        onGenerate={onGenerate}
-        onGuidedFallback={onGuidedFallback}
-        onSourceChange={onSourceChange}
-        onTopicsChange={onTopicsChange}
-        onTtlChange={onTtlChange}
-        state={state}
-      />
+      {showUi ? (
+        <AdaptiveStage
+          active={active}
+          draft={draft}
+          feedUrl={feedUrl}
+          issues={issues}
+          onActivityChange={onActivityChange}
+          onGenerate={onGenerate}
+          onGuidedFallback={onGuidedFallback}
+          onSourceChange={onSourceChange}
+          onTopicsChange={onTopicsChange}
+          onTtlChange={onTtlChange}
+          state={state}
+          ttlSelected={ttlSelected}
+        />
+      ) : null}
+
+      {transcript.length > 0 ? (
+        <details
+          className="ask-feed__conversation"
+          onToggle={(event) => setConversationOpen(event.currentTarget.open)}
+          open={conversationOpen}
+        >
+          <summary className="ask-feed__conversation-summary">Feed builder conversation</summary>
+          <ol aria-label="Feed builder conversation" className="ask-feed__transcript">
+            {transcript.map((turn, index) => (
+              <li
+                className={`ask-feed__turn ask-feed__turn--${turn.role}`}
+                key={`${turn.role}-${index}`}
+              >
+                <span className="ask-feed__turn-label">
+                  {turn.role === "user" ? "You" : "OSSReleaseFeed"}
+                </span>
+                <p>{turn.content}</p>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+
+      {error ? (
+        <section className="ask-feed__error" role="alert">
+          <p>{error}</p>
+          <div className="ask-feed__error-actions">
+            <button className="btn-secondary" onClick={() => submit()} type="button">
+              Retry
+            </button>
+            <button className="btn-secondary" onClick={() => onGuidedFallback(false)} type="button">
+              Continue with Guide me
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <form aria-labelledby={formLegendId} className="ask-feed__form" onSubmit={submit}>
         <fieldset className="ask-feed__fieldset" disabled={submitting}>
@@ -268,20 +301,6 @@ export function AskFeed({
       <output aria-atomic="true" aria-live="polite" className="visually-hidden">
         {announcement}
       </output>
-
-      {error ? (
-        <section className="ask-feed__error" role="alert">
-          <p>{error}</p>
-          <div className="ask-feed__error-actions">
-            <button className="btn-secondary" onClick={() => submit()} type="button">
-              Retry
-            </button>
-            <button className="btn-secondary" onClick={() => onGuidedFallback(false)} type="button">
-              Continue with Guide me
-            </button>
-          </div>
-        </section>
-      ) : null}
     </article>
   );
 }

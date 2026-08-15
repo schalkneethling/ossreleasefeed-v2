@@ -19,6 +19,8 @@ const readyResponse = {
   message: "Your topic feed is ready.",
   issues: [],
   feedUrl: "https://example.com/feed/token",
+  showUi: true,
+  ttlSelected: true,
 };
 
 describe("adaptive workspace", () => {
@@ -40,6 +42,7 @@ describe("adaptive workspace", () => {
       ttl: 86400,
     });
 
+    expect(ready.ttlSelected).toBe(false);
     expect(changed.draft).toMatchObject({
       source: "topics",
       topics: ["css"],
@@ -47,6 +50,21 @@ describe("adaptive workspace", () => {
     });
     expect(changed.adaptiveState).toBe("edit-settings");
     expect(changed.feedUrl).toBeNull();
+    expect(changed.ttlSelected).toBe(true);
+  });
+
+  it("reveals controls only for Ask-mode builder actions", () => {
+    const guided = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+      type: "set-topics",
+      topics: ["css"],
+    });
+    const ask = adaptiveWorkspaceReducer(
+      { ...DEFAULT_ADAPTIVE_WORKSPACE, selectedMode: "ask" },
+      { type: "set-topics", topics: ["css"] },
+    );
+
+    expect(guided.showUi).toBe(false);
+    expect(ask.showUi).toBe(true);
   });
 
   it("records a successful assistant turn and preserves it across mode changes", () => {
@@ -84,6 +102,8 @@ describe("adaptive workspace", () => {
       adaptiveState: "ready",
       draft: readyResponse.draft,
       feedUrl: readyResponse.feedUrl,
+      showUi: true,
+      ttlSelected: true,
       transcript: [
         { role: "user", content: "Create a CSS feed" },
         { role: "assistant", content: "Your topic feed is ready." },
@@ -99,6 +119,25 @@ describe("adaptive workspace", () => {
       draft: { source: "topics", topics: ["css"] },
       selectedMode: "ask",
       composer: "Change it to TypeScript",
+    });
+  });
+
+  it("restores a Guided URL without treating the default interval as an Ask selection", () => {
+    const now = Date.UTC(2026, 6, 19);
+    const serialized = JSON.stringify({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "ready",
+      draft: readyResponse.draft,
+      feedUrl: readyResponse.feedUrl,
+      showUi: true,
+      version: ADAPTIVE_SESSION_VERSION,
+      savedAt: now,
+    });
+
+    expect(parsePersistedWorkspace(serialized, now)).toMatchObject({
+      adaptiveState: "ready",
+      selectedMode: "guided",
+      ttlSelected: false,
     });
   });
 
@@ -125,6 +164,18 @@ describe("adaptive workspace", () => {
     expect(
       parsePersistedWorkspace(
         JSON.stringify({ ...base, feedUrl: "https://example.com/feed/stale" }),
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedWorkspace(
+        JSON.stringify({
+          ...base,
+          adaptiveState: "ready",
+          draft: readyResponse.draft,
+          feedUrl: readyResponse.feedUrl,
+          showUi: false,
+        }),
         now,
       ),
     ).toBeNull();

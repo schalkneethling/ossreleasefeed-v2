@@ -56,6 +56,8 @@ test.describe("adaptive feed Phase 2", () => {
           message: "Your topic feed is ready.",
           issues: [],
           feedUrl: "https://worker.example/feed/canonical-token",
+          showUi: true,
+          ttlSelected: true,
         },
       });
     });
@@ -112,6 +114,8 @@ test.describe("adaptive feed Phase 2", () => {
           message: "Your topic feed is ready.",
           issues: [],
           feedUrl: "http://malicious.example/feed/canonical-token",
+          showUi: true,
+          ttlSelected: true,
         },
       }),
     );
@@ -192,8 +196,11 @@ test.describe("adaptive feed Phase 2", () => {
   test("answers a capability question and lets the user continue with controls", async ({
     page,
   }) => {
-    await page.route("**/api/assistant/turn", (route) =>
-      route.fulfill({
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      return route.fulfill({
         json: {
           state: "choose-source",
           draft: {
@@ -206,46 +213,99 @@ test.describe("adaptive feed Phase 2", () => {
             format: "atom",
             topicOperator: "or",
           },
-          message: "You can create feeds by GitHub topic or from a user's starred repositories.",
+          message:
+            requestNumber === 1
+              ? "You can create feeds by GitHub topic or from a user's starred repositories."
+              : "Here is the interface for your current feed.",
           issues: [],
           feedUrl: null,
+          showUi: requestNumber > 1,
+          ttlSelected: false,
         },
-      }),
-    );
+      });
+    });
     await page.goto("/");
 
     await page.getByRole("button", { name: /ask for a feed/i }).click();
-    await page.getByLabel("Your request").fill("What type of feeds can I create?");
+    await page.getByLabel("Your request").fill("What feeds can I create");
     await page.getByRole("button", { name: "Send request" }).click();
 
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+
+    await expect(
+      conversation.getByText(
+        "You can create feeds by GitHub topic or from a user's starred repositories.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Needs attention" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toBeVisible();
     await page.getByRole("button", { name: /github topics/i }).click();
-    await page.getByRole("checkbox", { name: "CSS" }).check();
+    await page.getByRole("checkbox", { name: "CSS" }).click();
 
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByLabel("Update frequency")).toHaveValue("");
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeDisabled();
+    await page.getByLabel("Update frequency").selectOption("3600");
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeEnabled();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
     await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeVisible();
   });
 
   test("supports an incomplete request followed by clicks", async ({ page }) => {
-    await page.route("**/api/assistant/turn", (route) =>
-      route.fulfill({
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      return route.fulfill({
         json: {
           state: "edit-topics",
           draft: topicDraft([]),
-          message: "Choose one or more GitHub topics for this feed.",
-          issues: ["Include at least one topic."],
+          message:
+            requestNumber === 1
+              ? "Next, choose one or more GitHub topics. I can show you the topic picker or list some examples."
+              : "Here is the interface for your current feed.",
+          issues: [],
           feedUrl: null,
+          showUi: requestNumber > 1,
+          ttlSelected: false,
         },
-      }),
-    );
+      });
+    });
     await page.goto("/");
 
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page.getByLabel("Your request").fill("I want a topic feed");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(page.getByText("Include at least one topic.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Needs attention" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
 
-    await page.getByRole("checkbox", { name: "TypeScript" }).check();
+    const conversation = page.locator("details.ask-feed__conversation");
+    const conversationTurns = page.getByRole("list", { name: "Feed builder conversation" });
+
+    await expect(conversation).toHaveAttribute("open", "");
+    await expect(conversationTurns).toBeVisible();
+    await conversation.locator("summary").click();
+    await expect(conversationTurns).toBeHidden();
+    await conversation.locator("summary").click();
+    await expect(conversationTurns).toBeVisible();
+    await expect
+      .poll(() =>
+        conversation.evaluate((element) => element.nextElementSibling?.tagName.toLowerCase()),
+      )
+      .toBe("form");
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await page.getByRole("checkbox", { name: "TypeScript" }).click();
     await page.getByLabel("Update frequency").selectOption("86400");
     await page.getByRole("button", { name: /generate feed url/i }).click();
 
@@ -256,6 +316,62 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: "Create feed" }).click();
     await expect(page.getByRole("checkbox", { name: "TypeScript" })).toBeChecked();
     await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
+  });
+
+  test("guides the next decision and waits for permission before showing settings", async ({
+    page,
+  }) => {
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      const selectedTopics = requestNumber > 1 ? ["css", "javascript", "typescript"] : [];
+
+      return route.fulfill({
+        json: {
+          state: requestNumber === 1 ? "edit-topics" : "edit-settings",
+          draft: topicDraft(selectedTopics),
+          message:
+            requestNumber === 1
+              ? "Featured topics include CSS, TypeScript, Compiler, and Awesome Lists. You can also specify your own GitHub topics."
+              : requestNumber === 2
+                ? "I selected 3 topics: css, javascript, and typescript. Next, choose how often the feed should update. I can show you the settings UI or list the available options."
+                : "Here is the interface for your current feed.",
+          issues: [],
+          feedUrl: null,
+          showUi: requestNumber > 2,
+          ttlSelected: false,
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("What topics are available?");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+
+    await expect(conversation.getByText(/featured topics include css, typescript/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+
+    await page
+      .getByLabel("Your next message")
+      .fill("Use the topics CSS, JavaScript, and TypeScript");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(
+      conversation.getByText(/next, choose how often the feed should update/i),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByLabel("Update frequency")).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(page.getByLabel("Update frequency")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
   test("sends recent history for a correction and replaces the stale URL", async ({ page }) => {
@@ -278,6 +394,8 @@ test.describe("adaptive feed Phase 2", () => {
             message: "Your topic feed is ready.",
             issues: [],
             feedUrl: "https://worker.example/feed/first-token",
+            showUi: true,
+            ttlSelected: true,
           },
         });
         return;
@@ -291,6 +409,8 @@ test.describe("adaptive feed Phase 2", () => {
           message: "Your corrected topic feed is ready.",
           issues: [],
           feedUrl: "https://worker.example/feed/second-token",
+          showUi: true,
+          ttlSelected: true,
         },
       });
     });
@@ -315,29 +435,59 @@ test.describe("adaptive feed Phase 2", () => {
     ).toBeVisible();
   });
 
-  test("renders deterministic invalid-topic and unsupported-setting recovery controls", async ({
+  test("keeps recovery conversational until the user requests the relevant controls", async ({
     page,
   }) => {
     let requestNumber = 0;
     await page.route("**/api/assistant/turn", async (route) => {
       requestNumber += 1;
       await route.fulfill({
-        json:
-          requestNumber === 1
-            ? {
-                state: "edit-topics",
-                draft: topicDraft([]),
-                message: "Some topics could not be found on GitHub.",
-                issues: ["Check: not-a-real-topic"],
-                feedUrl: null,
-              }
-            : {
-                state: "edit-settings",
-                draft: topicDraft(["css"]),
-                message: "That update frequency is not available.",
-                issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
-                feedUrl: null,
-              },
+        json: [
+          {
+            state: "edit-topics",
+            draft: topicDraft([]),
+            message: "Some topics could not be found on GitHub.",
+            issues: ["Check: not-a-real-topic"],
+            feedUrl: null,
+            showUi: false,
+            ttlSelected: false,
+          },
+          {
+            state: "edit-topics",
+            draft: topicDraft([]),
+            message: "Here is the interface for your current feed.",
+            issues: ["Check: not-a-real-topic"],
+            feedUrl: null,
+            showUi: true,
+            ttlSelected: false,
+          },
+          {
+            state: "edit-settings",
+            draft: topicDraft(["css"]),
+            message: "That update frequency is not available.",
+            issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
+            feedUrl: null,
+            showUi: false,
+            ttlSelected: false,
+          },
+          {
+            state: "edit-settings",
+            draft: topicDraft(["css"]),
+            message: "Here is the interface for your current feed.",
+            issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
+            feedUrl: null,
+            showUi: true,
+            ttlSelected: false,
+          },
+        ][requestNumber - 1] ?? {
+          state: "edit-topics",
+          draft: topicDraft([]),
+          message: "Unexpected request.",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
       });
     });
     await page.goto("/");
@@ -345,14 +495,24 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page.getByLabel("Your request").fill("Create a not-a-real-topic feed");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(page.getByText("Check: not-a-real-topic", { exact: true })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Feed builder conversation" })).toContainText(
+      "Check: not-a-real-topic",
+    );
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
     await expect(page.getByRole("heading", { name: "Topics" })).toBeVisible();
 
     await page.getByLabel("Your next message").fill("Create CSS and update every 12 hours");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(
-      page.getByText("Choose 1 hour, 6 hours, 24 hours, or 1 week.", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("list", { name: "Feed builder conversation" })).toContainText(
+      "Choose 1 hour, 6 hours, 24 hours, or 1 week.",
+    );
+    await expect(page.getByLabel("Update frequency")).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
     await expect(page.getByLabel("Update frequency")).toBeVisible();
   });
 
@@ -367,6 +527,8 @@ test.describe("adaptive feed Phase 2", () => {
           message: "Review the feed settings.",
           issues: [],
           feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
         },
       }),
     );
@@ -390,7 +552,8 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("article")).toBeVisible();
     await expect(page.getByLabel("Your next message")).toHaveValue("Change the activity next");
     await expect(page.getByText("Review the feed settings.", { exact: true })).toBeVisible();
-    await expect(page.getByRole("checkbox", { name: "CSS" })).toBeChecked();
+    await expect(page.getByLabel("Update frequency")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
   });
 
   test("starts over without carrying conversation or draft state", async ({ page }) => {
@@ -402,6 +565,8 @@ test.describe("adaptive feed Phase 2", () => {
           message: "Your topic feed is ready.",
           issues: [],
           feedUrl: "https://worker.example/feed/reset-token",
+          showUi: true,
+          ttlSelected: true,
         },
       }),
     );
@@ -415,21 +580,62 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByLabel("Your request")).toHaveValue("");
     await expect(page.getByRole("link", { name: /reset-token/i })).toHaveCount(0);
     await expect(page.getByRole("list", { name: "Feed builder conversation" })).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Choose a feed source" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
   test("offers a prefilled Guided fallback after an assistant or GitHub failure", async ({
     page,
   }) => {
-    await page.route("**/api/assistant/turn", (route) =>
-      route.fulfill({ status: 503, json: { error: "Assistant temporarily unavailable" } }),
-    );
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 1) {
+        return route.fulfill({
+          json: {
+            state: "choose-source",
+            draft: {
+              source: null,
+              topics: [],
+              username: null,
+              repoSelection: null,
+              activityType: "releases",
+              ttl: 3600,
+              format: "atom",
+              topicOperator: "or",
+            },
+            message: "You can create feeds by GitHub topic or starred repositories.",
+            issues: [],
+            feedUrl: null,
+            showUi: false,
+            ttlSelected: false,
+          },
+        });
+      }
+
+      return route.fulfill({
+        status: 503,
+        json: { error: "Assistant temporarily unavailable" },
+      });
+    });
     await page.goto("/");
 
     await page.getByRole("button", { name: /ask for a feed/i }).click();
-    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByLabel("Your request").fill("What feeds can I create?");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(page.getByRole("alert")).toContainText("could not finish");
+    await page.getByLabel("Your next message").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("could not finish");
+    await expect
+      .poll(() =>
+        alert.evaluate((element) => ({
+          previous: element.previousElementSibling?.tagName.toLowerCase(),
+          next: element.nextElementSibling?.tagName.toLowerCase(),
+        })),
+      )
+      .toEqual({ previous: "details", next: "form" });
 
     await page.getByRole("button", { name: "Continue with Guide me" }).click();
     await expect(
@@ -437,7 +643,7 @@ test.describe("adaptive feed Phase 2", () => {
     ).toBeVisible();
 
     await page.getByRole("button", { name: /ask for a feed/i }).click();
-    await expect(page.getByLabel("Your request")).toHaveValue("Create a CSS feed");
+    await expect(page.getByLabel("Your next message")).toHaveValue("Create a CSS feed");
   });
 
   test("renders its semantic form landmark and live feedback containers up front", async ({
@@ -448,6 +654,8 @@ test.describe("adaptive feed Phase 2", () => {
 
     await expect(page.getByRole("article")).toBeVisible();
     await expect(page.getByRole("form", { name: "Ask for a topic feed" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
+    await expect(page.getByText("Adaptive topic builder", { exact: true })).toHaveCount(0);
     await expect(page.locator("output[aria-live='polite']")).toHaveCount(2);
   });
 
@@ -459,7 +667,7 @@ test.describe("adaptive feed Phase 2", () => {
       localStorage.setItem(
         "ossreleasefeed:adaptive-session",
         JSON.stringify({
-          version: 1,
+          version: 3,
           savedAt: Date.now(),
           adaptiveState: "edit-topics",
           draft: {
@@ -476,6 +684,8 @@ test.describe("adaptive feed Phase 2", () => {
           transcript: [],
           composer: "Saved Ask request",
           issues: [],
+          showUi: false,
+          ttlSelected: false,
           selectedMode: "ask",
           builderStarted: false,
         }),

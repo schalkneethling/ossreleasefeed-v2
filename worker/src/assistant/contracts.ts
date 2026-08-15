@@ -18,6 +18,9 @@ export {
 export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
   "explain-capabilities",
+  "list-topics",
+  "list-settings",
+  "show-ui",
   "unsupported",
 ] as const;
 
@@ -33,7 +36,14 @@ const FEED_DRAFT_KEYS = [
   "format",
   "topicOperator",
 ] as const;
-const ASSISTANT_REQUEST_KEYS = ["message", "history", "state", "draft"] as const;
+const ASSISTANT_REQUEST_KEYS = [
+  "message",
+  "history",
+  "state",
+  "draft",
+  "issues",
+  "ttlSelected",
+] as const;
 const HISTORY_TURN_KEYS = ["role", "content"] as const;
 const MODEL_DECISION_KEYS = ["intent", "proposedState", "draftPatch", "framing"] as const;
 const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
@@ -51,6 +61,8 @@ export type AssistantTurnRequest = {
   history: AssistantHistoryTurn[];
   state: AdaptiveState;
   draft: FeedDraft;
+  issues: string[];
+  ttlSelected: boolean;
 };
 
 export type AssistantTurnResponse = {
@@ -59,6 +71,8 @@ export type AssistantTurnResponse = {
   message: string;
   issues: string[];
   feedUrl: string | null;
+  showUi: boolean;
+  ttlSelected: boolean;
 };
 
 export type ModelDraftPatch = Partial<FeedDraft>;
@@ -173,7 +187,9 @@ export const isAssistantTurnRequest = (value: unknown): value is AssistantTurnRe
     value.history.length <= 6 &&
     value.history.every(isAssistantHistoryTurn) &&
     isAdaptiveState(value.state) &&
-    isFeedDraft(value.draft)
+    isFeedDraft(value.draft) &&
+    isStringArray(value.issues, 5) &&
+    typeof value.ttlSelected === "boolean"
   );
 };
 

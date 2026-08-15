@@ -217,18 +217,39 @@ URL. Capability questions, incomplete requests, corrections, invalid topics,
 and unsupported update intervals therefore all use the same authoritative
 state machine rather than model-generated UI.
 
+Informational turns remain conversational. Feed-type questions return a short
+text explanation, and topic-discovery questions use the current featured-topic
+service to provide examples without revealing controls. A user can ask to
+“Show UI” after any turn; the model classifies that intent, while the Worker
+derives the appropriate state from the validated draft and React reveals only
+the registered components for that state. The model still cannot name
+components, generate markup, or bypass product validation.
+
+Incomplete feed-building turns also remain conversational until the user asks
+for controls. Each deterministic response confirms the validated change,
+identifies the next decision, and offers either a textual list of supported
+options or the relevant UI. For example, selecting topics advances the draft
+to update-frequency selection without automatically revealing settings. The
+stored one-hour value is a control default, not evidence that the user chose an
+interval. A complete request that explicitly includes a supported interval can
+still skip directly to the generated URL.
+
 One reducer owns the topic `FeedDraft` used by Ask and Guided modes. The trusted
 component registry maps the current state to source choices, the controlled
 topic editor, controlled settings, validation issues, the feed-recipe ledger,
-and the generated URL. Typed turns and clicks can be mixed freely. Any draft
-change clears a generated URL before it can become stale, and a Guided fallback
-is prefilled with the validated Ask draft.
+and the generated URL. It renders only the component needed for the current
+decision; topic editing does not also expose settings, and settings do not
+resurface the topic picker. Typed turns and clicks can be mixed freely. Any
+draft change clears a generated URL before it can become stale, and a Guided
+fallback is prefilled with the validated Ask draft.
 
 Ask sessions are stored locally with a schema version and timestamp. Restore
 rejects malformed or internally inconsistent state, expires after seven days,
 and caps retained transcript context. The saved workspace includes the draft,
 conversation, composer, selected interaction mode, and builder state. **Start
-over** clears both the live workspace and its saved snapshot.
+over** clears both the live workspace and its saved snapshot. The saved
+workspace also records whether controls were intentionally revealed, so a
+restored informational conversation does not unexpectedly expose UI.
 
 Manual mode changes keep both the Ask composer and a started Guided builder
 mounted but hidden, preserving their shared validated state. The mode change

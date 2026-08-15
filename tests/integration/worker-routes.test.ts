@@ -89,6 +89,8 @@ const assistantRequest = (message: string) => ({
   history: [],
   state: "idle" as const,
   draft: DEFAULT_FEED_DRAFT,
+  issues: [],
+  ttlSelected: false,
 });
 
 const atomFixture = `<?xml version="1.0" encoding="utf-8"?>
@@ -551,6 +553,8 @@ describe("POST /api/assistant/turn", () => {
       },
       issues: [],
       feedUrl: `http://127.0.0.1:8787/feed/${expectedToken}`,
+      showUi: true,
+      ttlSelected: true,
     });
     expect(run).toHaveBeenCalledWith(
       "@cf/meta/llama-3.1-8b-instruct-fast",
@@ -625,27 +629,235 @@ describe("POST /api/assistant/turn", () => {
 
   it("answers capability questions without inventing a feed", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
+    const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "explain-capabilities",
         proposedState: "choose-source",
         draftPatch: {},
       },
     });
-    const response = await postAssistant(
-      assistantRequest("What type of feeds can I create?"),
-      bindings,
-    );
+    const response = await postAssistant(assistantRequest("What feeds can I create"), bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     expect(payload.state).toBe("choose-source");
     expect(payload.feedUrl).toBeNull();
+    expect(payload.showUi).toBe(false);
     expect(payload.message).toContain("GitHub topic");
+    expect(run).toHaveBeenCalledOnce();
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("surfaces topic controls for an incomplete topic request", async () => {
+  it("lists current featured topics conversationally without revealing controls", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", () =>
+        HttpResponse.json({
+          items: [
+            { name: "css", display_name: "CSS", short_description: null },
+            { name: "typescript", display_name: "TypeScript", short_description: null },
+            { name: "compiler", display_name: "Compiler", short_description: null },
+            { name: "awesome-lists", display_name: "Awesome Lists", short_description: null },
+          ],
+        }),
+      ),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-topics",
+        proposedState: "edit-topics",
+        draftPatch: { source: "topics" },
+      },
+    });
+    const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-topics",
+      draft: { source: "topics", topics: [] },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("CSS, TypeScript, Compiler, Awesome Lists");
+    expect(payload.message).toContain("specify your own");
+  });
+
+  it("uses fallback copy when no featured topics are available", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", () => HttpResponse.json({ items: [] })),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-topics",
+        proposedState: "edit-topics",
+        draftPatch: { source: "topics" },
+      },
+    });
+    const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toBe(
+      "Featured topics are temporarily unavailable. You can still specify any GitHub topic.",
+    );
+  });
+
+  it("lists update frequencies before a topic is selected without changing state", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-settings",
+        proposedState: "edit-settings",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("What update frequencies are available?"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "idle",
+      draft: { source: null, topics: [] },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("1 hour, 6 hours, 24 hours, or 1 week");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("lists update frequencies conversationally without revealing controls", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-settings",
+        proposedState: "edit-settings",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("List the update frequency options"),
+        state: "edit-settings",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("1 hour, 6 hours, 24 hours, or 1 week");
+    expect(payload.message).toContain("show the settings UI");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("confirms selected topics and explains the next decision without revealing controls", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "edit-topics",
+        draftPatch: { source: "topics", topics: ["css", "javascript", "typescript"] },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Use CSS, JavaScript, and TypeScript"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: { topics: ["css", "javascript", "typescript"] },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("I selected 3 topics");
+    expect(payload.message).toContain("choose how often the feed should update");
+    expect(payload.message).toContain("show you the settings UI or list the available options");
+  });
+
+  it("reveals trusted components for the current conversation state on request", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "show-ui",
+        proposedState: "edit-topics",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Show UI"),
+        state: "edit-topics",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
+        issues: ["Include at least one topic."],
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-topics",
+      draft: { source: "topics", topics: [] },
+      issues: ["Include at least one topic."],
+      feedUrl: null,
+      showUi: true,
+    });
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("returns to source choices when UI is requested after an unsupported starred request", async () => {
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "show-ui",
+        proposedState: "recoverable-error",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Show UI"),
+        state: "recoverable-error",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "starred" },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-source",
+      draft: { source: "starred" },
+      issues: [],
+      feedUrl: null,
+      showUi: true,
+    });
+  });
+
+  it("asks for topics without revealing controls for an incomplete topic request", async () => {
     const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
@@ -661,8 +873,9 @@ describe("POST /api/assistant/turn", () => {
     expect(payload).toMatchObject({
       state: "edit-topics",
       draft: { source: "topics", topics: [] },
-      issues: ["Include at least one topic."],
+      issues: [],
       feedUrl: null,
+      showUi: false,
     });
     expect(githubCalls).toHaveLength(0);
   });
@@ -697,6 +910,8 @@ describe("POST /api/assistant/turn", () => {
           source: "topics",
           topics: ["css"],
         },
+        issues: [],
+        ttlSelected: true,
       },
       bindings,
     );
@@ -707,6 +922,49 @@ describe("POST /api/assistant/turn", () => {
       state: "ready",
       draft: { topics: ["typescript"], ttl: 86400 },
       issues: [],
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+  });
+
+  it("reaches ready on a later turn after an interval was explicitly selected", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Generate the feed"),
+        state: "edit-settings",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css"],
+          ttl: 86400,
+        },
+        ttlSelected: true,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: { topics: ["css"], ttl: 86400 },
+      ttlSelected: true,
+      showUi: true,
     });
     expect(payload.feedUrl).toContain("/feed/");
   });

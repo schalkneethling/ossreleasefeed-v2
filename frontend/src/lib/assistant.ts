@@ -32,7 +32,15 @@ const DRAFT_KEYS = [
   "format",
   "topicOperator",
 ] as const;
-const RESPONSE_KEYS = ["state", "draft", "message", "issues", "feedUrl"] as const;
+const RESPONSE_KEYS = [
+  "state",
+  "draft",
+  "message",
+  "issues",
+  "feedUrl",
+  "showUi",
+  "ttlSelected",
+] as const;
 const EXPERIMENT_RESPONSE_KEYS = ["adaptiveFeedBuilder"] as const;
 const EXPERIMENT_KEY_STORAGE = "ossreleasefeed:experiment-key";
 const EXPERIMENT_KEY = /^[A-Za-z0-9_-]{16,128}$/u;
@@ -48,6 +56,8 @@ export type AssistantTurnRequest = {
   history: AssistantHistoryTurn[];
   state: AdaptiveState;
   draft: FeedDraft;
+  issues: string[];
+  ttlSelected: boolean;
 };
 
 export type AssistantTurnResponse = {
@@ -56,6 +66,8 @@ export type AssistantTurnResponse = {
   message: string;
   issues: string[];
   feedUrl: string | null;
+  showUi: boolean;
+  ttlSelected: boolean;
 };
 
 let inMemoryExperimentKey: string | undefined;
@@ -210,7 +222,7 @@ export const isFeedDraft = (value: unknown): value is FeedDraft => {
 };
 
 export const isLegalTransition = (current: AdaptiveState, proposed: AdaptiveState): boolean =>
-  LEGAL_TRANSITIONS[current].includes(proposed);
+  current === proposed || LEGAL_TRANSITIONS[current].includes(proposed);
 
 const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse => {
   if (!isRecord(value) || !hasExactKeys(value, RESPONSE_KEYS)) {
@@ -225,13 +237,22 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
     return false;
   }
 
-  if (!isStringArray(value.issues, 5) || !isSecureFeedUrl(value.feedUrl)) {
+  if (
+    !isStringArray(value.issues, 5) ||
+    !isSecureFeedUrl(value.feedUrl) ||
+    typeof value.showUi !== "boolean" ||
+    typeof value.ttlSelected !== "boolean"
+  ) {
     return false;
   }
 
   if (value.state === "ready") {
     return (
-      value.draft.source === "topics" && value.draft.topics.length > 0 && value.feedUrl !== null
+      value.draft.source === "topics" &&
+      value.draft.topics.length > 0 &&
+      value.feedUrl !== null &&
+      value.showUi &&
+      value.ttlSelected
     );
   }
 

@@ -9,6 +9,7 @@ type RegistryProps = {
   draft: FeedDraft;
   feedUrl: string | null;
   issues: string[];
+  ttlSelected: boolean;
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onGenerate: () => void;
   onGuidedFallback: (disabled: boolean) => void;
@@ -65,13 +66,20 @@ const TopicChoices = ({ active, draft, onTopicsChange }: RegistryProps) => (
   </section>
 );
 
-const Settings = ({ draft, onActivityChange, onGenerate, onTtlChange }: RegistryProps) => (
+const Settings = ({
+  draft,
+  onActivityChange,
+  onGenerate,
+  onTtlChange,
+  ttlSelected,
+}: RegistryProps) => (
   <FeedConfigPanel
     activityType={draft.activityType}
     onActivityChange={onActivityChange}
     onGenerate={onGenerate}
     onTtlChange={onTtlChange}
     ttl={draft.ttl}
+    ttlSelected={ttlSelected}
   />
 );
 
@@ -105,10 +113,9 @@ const COMPONENT_REGISTRY: Record<RegisteredComponent, ComponentType<RegistryProp
 
 const componentsForState = (
   state: AdaptiveState,
-  draft: FeedDraft,
   issues: readonly string[],
 ): RegisteredComponent[] => {
-  if (state === "idle" || state === "choose-source") {
+  if (state === "choose-source") {
     return ["feed-types"];
   }
 
@@ -116,9 +123,13 @@ const componentsForState = (
     return ["feed-types", ...(issues.length > 0 ? (["validation-issues"] as const) : [])];
   }
 
-  const topicComponents: RegisteredComponent[] = ["recipe", "topic-choices"];
+  const topicComponents: RegisteredComponent[] = [];
 
-  if (draft.topics.length > 0 && state !== "edit-topics") {
+  if (state === "edit-topics") {
+    topicComponents.push("topic-choices");
+  }
+
+  if (state === "edit-settings") {
     topicComponents.push("settings");
   }
 
@@ -127,6 +138,7 @@ const componentsForState = (
   }
 
   if (state === "ready") {
+    topicComponents.push("recipe");
     topicComponents.push("generated-url");
   }
 
@@ -134,7 +146,15 @@ const componentsForState = (
 };
 
 export function AdaptiveStage({ state, ...props }: RegistryProps & { state: AdaptiveState }) {
-  const components = componentsForState(state, props.draft, props.issues);
+  if (state === "idle") {
+    return null;
+  }
+
+  const components = componentsForState(state, props.issues);
+
+  if (components.length === 0) {
+    return null;
+  }
 
   return (
     <div className="adaptive-stage-registry">

@@ -6,14 +6,20 @@ import {
 } from "../../worker/src/assistant/contracts";
 import { applyDraftPatch, isLegalTransition } from "../../worker/src/assistant/state";
 
+const validRequest = {
+  message: "Create a CSS feed",
+  history: [],
+  state: "idle",
+  draft: DEFAULT_FEED_DRAFT,
+  issues: [],
+  ttlSelected: false,
+};
+
 describe("assistant contracts", () => {
-  it("accepts the version-one request contract", () => {
+  it("accepts the current request contract", () => {
     expect(
       isAssistantTurnRequest({
-        message: "Create a CSS feed",
-        history: [],
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
+        ...validRequest,
       }),
     ).toBe(true);
   });
@@ -21,26 +27,19 @@ describe("assistant contracts", () => {
   it("rejects overlong messages, too much history, and unknown fields", () => {
     expect(
       isAssistantTurnRequest({
+        ...validRequest,
         message: "x".repeat(1001),
-        history: [],
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
       }),
     ).toBe(false);
     expect(
       isAssistantTurnRequest({
-        message: "Create a feed",
+        ...validRequest,
         history: Array.from({ length: 7 }, () => ({ role: "user", content: "next" })),
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
       }),
     ).toBe(false);
     expect(
       isAssistantTurnRequest({
-        message: "Create a feed",
-        history: [],
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
+        ...validRequest,
         extra: true,
       }),
     ).toBe(false);
@@ -49,10 +48,9 @@ describe("assistant contracts", () => {
   it("accepts request values at their message and history boundaries", () => {
     expect(
       isAssistantTurnRequest({
+        ...validRequest,
         message: "x".repeat(1_000),
         history: Array.from({ length: 6 }, () => ({ role: "user", content: "next" })),
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
       }),
     ).toBe(true);
   });
@@ -60,10 +58,8 @@ describe("assistant contracts", () => {
   it("rejects an empty request message", () => {
     expect(
       isAssistantTurnRequest({
+        ...validRequest,
         message: "",
-        history: [],
-        state: "idle",
-        draft: DEFAULT_FEED_DRAFT,
       }),
     ).toBe(false);
   });
@@ -100,6 +96,7 @@ describe("assistant contracts", () => {
   });
 
   it("allows a complete request after the capability source choice", () => {
+    expect(isLegalTransition("idle", "idle")).toBe(true);
     expect(isLegalTransition("choose-source", "ready")).toBe(true);
     expect(isLegalTransition("choose-source", "edit-settings")).toBe(true);
     expect(isLegalTransition("choose-source", "choose-repos")).toBe(false);

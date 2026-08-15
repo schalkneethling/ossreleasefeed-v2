@@ -11,7 +11,7 @@ import {
 } from "./assistant";
 
 export const ADAPTIVE_SESSION_STORAGE_KEY = "ossreleasefeed:adaptive-session";
-export const ADAPTIVE_SESSION_VERSION = 1;
+export const ADAPTIVE_SESSION_VERSION = 3;
 export const ADAPTIVE_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 export const TRANSCRIPT_MAX_TURNS = 12;
 export const TRANSCRIPT_MAX_CHARACTERS = 6_000;
@@ -28,6 +28,8 @@ export type AdaptiveWorkspace = {
   transcript: AssistantHistoryTurn[];
   composer: string;
   issues: string[];
+  showUi: boolean;
+  ttlSelected: boolean;
   selectedMode: InteractionMode;
   builderStarted: boolean;
 };
@@ -39,6 +41,8 @@ export const DEFAULT_ADAPTIVE_WORKSPACE: AdaptiveWorkspace = {
   transcript: [],
   composer: "",
   issues: [],
+  showUi: false,
+  ttlSelected: false,
   selectedMode: "guided",
   builderStarted: false,
 };
@@ -142,6 +146,8 @@ const updateDraft = (
     draft,
     feedUrl: null,
     issues: [],
+    showUi: workspace.selectedMode === "ask" ? true : workspace.showUi,
+    ttlSelected: workspace.ttlSelected || "ttl" in patch,
   };
 };
 
@@ -209,7 +215,14 @@ export const adaptiveWorkspaceReducer = (
       return updateDraft(workspace, { ttl: action.ttl });
     }
     case "set-feed-url": {
-      return { ...workspace, adaptiveState: "ready", feedUrl: action.feedUrl, issues: [] };
+      return {
+        ...workspace,
+        adaptiveState: "ready",
+        feedUrl: action.feedUrl,
+        issues: [],
+        showUi: true,
+        ttlSelected: workspace.ttlSelected,
+      };
     }
     case "assistant-result": {
       if (!isLegalTransition(workspace.adaptiveState, action.response.state)) {
@@ -224,6 +237,8 @@ export const adaptiveWorkspaceReducer = (
         transcript: assistantTranscript(workspace, action.userMessage, action.response),
         composer: "",
         issues: action.response.issues,
+        showUi: action.response.showUi,
+        ttlSelected: action.response.ttlSelected,
       };
     }
     case "reset": {
@@ -239,9 +254,18 @@ const isStateConsistentWithWorkspace = (
   state: AdaptiveState,
   draft: FeedDraft,
   feedUrl: string | null,
+  showUi: boolean,
+  ttlSelected: boolean,
+  selectedMode: InteractionMode,
 ): boolean => {
   if (feedUrl !== null) {
-    return state === "ready" && draft.source === "topics" && draft.topics.length > 0;
+    return (
+      state === "ready" &&
+      draft.source === "topics" &&
+      draft.topics.length > 0 &&
+      showUi &&
+      (selectedMode === "guided" || ttlSelected)
+    );
   }
 
   if (state === "ready") {
@@ -298,11 +322,25 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
     return false;
   }
 
-  if (!isStateConsistentWithWorkspace(value.adaptiveState, value.draft, value.feedUrl)) {
+  if (
+    typeof value.builderStarted !== "boolean" ||
+    typeof value.composer !== "string" ||
+    typeof value.showUi !== "boolean" ||
+    typeof value.ttlSelected !== "boolean"
+  ) {
     return false;
   }
 
-  if (typeof value.builderStarted !== "boolean" || typeof value.composer !== "string") {
+  if (
+    !isStateConsistentWithWorkspace(
+      value.adaptiveState,
+      value.draft,
+      value.feedUrl,
+      value.showUi,
+      value.ttlSelected,
+      value.selectedMode,
+    )
+  ) {
     return false;
   }
 
@@ -335,6 +373,8 @@ export const parsePersistedWorkspace = (
       transcript: capTranscript(parsed.transcript),
       composer: parsed.composer,
       issues: parsed.issues,
+      showUi: parsed.showUi,
+      ttlSelected: parsed.ttlSelected,
       selectedMode: parsed.selectedMode,
       builderStarted: parsed.builderStarted,
     };
