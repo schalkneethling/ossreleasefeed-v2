@@ -11,6 +11,11 @@ export type FeaturedTopic = {
   short_description: string | null;
 };
 
+export type TopicValidation = {
+  exists: boolean;
+  name: string | null;
+};
+
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
 
@@ -26,6 +31,16 @@ const isFeaturedTopic = (value: unknown): value is FeaturedTopic => {
     isNullableString(topic.display_name) &&
     isNullableString(topic.short_description)
   );
+};
+
+const isTopicValidation = (value: unknown): value is TopicValidation => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const validation = value as Record<string, unknown>;
+
+  return typeof validation.exists === "boolean" && isNullableString(validation.name);
 };
 
 export const apiUrl = (path: string): string => `${workerBase}${path}`;
@@ -47,7 +62,10 @@ export type UsernameValidation = {
 };
 
 const isRepo = (value: unknown): value is Repo => {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
   const r = value as Record<string, unknown>;
   return (
     typeof r.full_name === "string" &&
@@ -61,12 +79,13 @@ const isRepo = (value: unknown): value is Repo => {
 };
 
 const isUsernameValidation = (value: unknown): value is UsernameValidation => {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
   const v = value as Record<string, unknown>;
   return (
-    typeof v.exists === "boolean" &&
-    (v.username === null || typeof v.username === "string") &&
-    typeof v.hasStars === "boolean"
+    typeof v.exists === "boolean" && isNullableString(v.username) && typeof v.hasStars === "boolean"
   );
 };
 
@@ -76,9 +95,10 @@ async function apiFetch<T>(
   label: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(url, {
-    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    signal: requestSignal,
   });
 
   if (!response.ok) {
@@ -103,10 +123,10 @@ export async function fetchFeaturedTopics(signal?: AbortSignal): Promise<Feature
   );
 }
 
-export async function validateTopic(slug: string, signal?: AbortSignal): Promise<boolean> {
+export async function validateTopic(slug: string, signal?: AbortSignal): Promise<TopicValidation> {
   return apiFetch(
     apiUrl(`/api/topics/validate?q=${encodeURIComponent(slug)}`),
-    (p): p is boolean => typeof p === "boolean",
+    isTopicValidation,
     "Topic validation",
     signal,
   );

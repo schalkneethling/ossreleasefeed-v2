@@ -18,12 +18,16 @@ flowchart TD
         Topics["GET /api/topics/*"]
         Users["GET /api/users/validate/:username"]
         Starred["GET /api/starred/:username"]
+        Experiments["GET /api/experiments"]
+        Assistant["POST /api/assistant/turn"]
     end
 
     Cache[("Cloudflare Cache API\n(edge cache, keyed on request URL)")]
     GitHub[("GitHub REST API v3\n(server-side PAT, Worker secret)")]
     Sentry[("Sentry\n(error tracking)")]
     Umami[("Umami\n(analytics)")]
+    Flagship[("Cloudflare Flagship\n(runtime experiment flag)")]
+    WorkersAI[("Workers AI\n(structured intent only)")]
 
     Browser -- HTTPS --> SPA
     Browser -- "fetch (CORS-checked)" --> Worker
@@ -34,6 +38,10 @@ flowchart TD
     Topics --> GitHub
     Users --> GitHub
     Starred --> GitHub
+    Experiments --> Flagship
+    Assistant --> Flagship
+    Assistant --> WorkersAI
+    Assistant --> GitHub
 
     Worker -. captured errors .-> Sentry
     SPA -. captured errors .-> Sentry
@@ -167,6 +175,66 @@ stateDiagram-v2
 Both steps use the same `FeedConfigPanel` for the final activity-type/TTL
 choice and URL generation; changing any upstream selection clears a
 previously generated URL so it can't silently go stale in the UI.
+
+## Adaptive feed experiment (Phase 2)
+
+The `adaptive-feed-builder` Flagship flag defaults to `false` and currently
+serves `true` only when the trusted request surface is `local` or `preview`.
+The homepage fetches `GET /api/experiments` with a stable anonymous key. When
+enabled, a user can choose the unchanged Guided flow or use a multi-turn typed
+topic builder backed by `POST /api/assistant/turn`.
+
+The browser first persists the anonymous key in local storage, then falls back
+to session storage. It also retains the key in module memory, so every turn in
+the current page uses the same key even when browser storage is unavailable.
+If both storage mechanisms are blocked, a full page reload creates a new key;
+the separate network rate limit remains the anti-rotation ceiling.
+
+Cloudflare Pages preview URLs are public to anyone who has the URL; a preview
+is not an authentication boundary. Before any model invocation, the Worker
+therefore applies both a five-request-per-60-seconds anonymous-client limit and
+a shared 15-request-per-60-seconds network limit. Rotating the anonymous key
+does not bypass the network ceiling. Cloudflare's rate-limit binding reports an
+allow/deny decision, not the number of requests remaining, so the UI describes
+the policy rather than showing an inaccurate quota counter. A rejected request
+returns `Retry-After`, which the UI uses for exact retry guidance. Preview
+access should still be treated as public and temporary, not private testing.
+
+The assistant endpoint checks the same flag and two independent rate limits
+before invoking Workers AI. The model can return only a structured intent,
+proposed state, and draft patch. Worker code rejects unknown fields and illegal
+states, validates every topic through GitHub, applies the product's fixed
+defaults and limits, and encodes the feed URL itself. A model response never
+supplies markup or a URL. Missing bindings and evaluation errors fail closed;
+disabling the flag makes new assistant turns return `404`.
+
+The browser and Worker share the same legal transition table for `idle`, source
+choice, topic editing, settings editing, ready, and recoverable-error states.
+The model proposes a transition and a partial draft patch; the Worker applies
+the patch, verifies the transition and resulting state, validates the complete
+topic set, and returns deterministic product copy and an optional generated
+URL. Capability questions, incomplete requests, corrections, invalid topics,
+and unsupported update intervals therefore all use the same authoritative
+state machine rather than model-generated UI.
+
+One reducer owns the topic `FeedDraft` used by Ask and Guided modes. The trusted
+component registry maps the current state to source choices, the controlled
+topic editor, controlled settings, validation issues, the feed-recipe ledger,
+and the generated URL. Typed turns and clicks can be mixed freely. Any draft
+change clears a generated URL before it can become stale, and a Guided fallback
+is prefilled with the validated Ask draft.
+
+Ask sessions are stored locally with a schema version and timestamp. Restore
+rejects malformed or internally inconsistent state, expires after seven days,
+and caps retained transcript context. The saved workspace includes the draft,
+conversation, composer, selected interaction mode, and builder state. **Start
+over** clears both the live workspace and its saved snapshot.
+
+Manual mode changes keep both the Ask composer and a started Guided builder
+mounted but hidden, preserving their shared validated state. The mode change
+aborts any active Ask request. If the runtime flag is disabled, Ask mode is
+removed, its saved session is cleared, and the user is moved to the already
+available prefilled Guided baseline.
 
 ## What's out of scope
 

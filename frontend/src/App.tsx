@@ -1,7 +1,20 @@
-import { useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { AskFeed } from "./components/AskFeed";
 import { Builder } from "./components/Builder";
 import { Hero } from "./components/Hero";
+import { useInteractionCycle } from "./hooks/useInteractionCycle";
+import { fetchExperiments, getExperimentKey } from "./lib/assistant";
+import {
+  adaptiveWorkspaceReducer,
+  clearAdaptiveWorkspace,
+  DEFAULT_ADAPTIVE_WORKSPACE,
+  loadAdaptiveWorkspace,
+  persistAdaptiveWorkspace,
+  type InteractionMode,
+} from "./lib/adaptive-session";
 import { trackEvent } from "./lib/analytics";
+import { feedUrl } from "./lib/api";
+import { encodeFeedConfig } from "./lib/config";
 
 const FeedMark = () => (
   <svg aria-hidden="true" className="site-header__mark" viewBox="0 0 24 24">
@@ -12,7 +25,100 @@ const FeedMark = () => (
 );
 
 export function App() {
-  const [builderStarted, setBuilderStarted] = useState(false);
+  const [experimentEnabled, setExperimentEnabled] = useState(false);
+  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
+  const [workspace, dispatch] = useReducer(adaptiveWorkspaceReducer, DEFAULT_ADAPTIVE_WORKSPACE);
+  const experimentKeyRef = useRef(getExperimentKey());
+  const restoredRef = useRef(false);
+  const workspaceRef = useRef(workspace);
+  const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(10_000);
+
+  workspaceRef.current = workspace;
+
+  useEffect(() => {
+    const controller = beginCycle();
+
+    fetchExperiments(experimentKeyRef.current, controller.signal)
+      .then(({ adaptiveFeedBuilder }) => {
+        if (adaptiveFeedBuilder && !restoredRef.current) {
+          if (workspaceRef.current === DEFAULT_ADAPTIVE_WORKSPACE) {
+            const restored = loadAdaptiveWorkspace();
+
+            if (restored) {
+              dispatch({ type: "restore", workspace: restored });
+            }
+          }
+
+          restoredRef.current = true;
+        }
+
+        setExperimentEnabled(adaptiveFeedBuilder);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setExperimentEnabled(false);
+        }
+      })
+      .finally(() => {
+        completeCycle(controller);
+      });
+
+    return cancelCycle;
+  }, [beginCycle, cancelCycle, completeCycle]);
+
+  useEffect(() => {
+    if (experimentEnabled && restoredRef.current) {
+      persistAdaptiveWorkspace(workspace);
+    }
+  }, [experimentEnabled, workspace]);
+
+  const startGuided = () => {
+    trackEvent("Feed builder started");
+    setFallbackMessage(null);
+    dispatch({ type: "start-guided" });
+  };
+
+  const chooseMode = (mode: InteractionMode) => {
+    setFallbackMessage(null);
+    dispatch({ type: "select-mode", mode });
+  };
+
+  const fallbackToGuided = (disabled: boolean) => {
+    setFallbackMessage(
+      disabled
+        ? "Ask mode was disabled. Your guided feed builder is ready below."
+        : "Continue your request with the guided feed builder.",
+    );
+    dispatch({ type: "fallback-guided" });
+
+    if (disabled) {
+      clearAdaptiveWorkspace();
+      setExperimentEnabled(false);
+    }
+  };
+
+  const generateTopicUrl = () => {
+    if (workspace.draft.source !== "topics" || workspace.draft.topics.length === 0) {
+      return;
+    }
+
+    const token = encodeFeedConfig({
+      source: "topics",
+      topics: workspace.draft.topics,
+      topicOperator: "or",
+      activityType: workspace.draft.activityType,
+      ttl: workspace.draft.ttl,
+      format: "atom",
+    });
+
+    dispatch({ type: "set-feed-url", feedUrl: feedUrl(token) });
+  };
+
+  const startOver = () => {
+    clearAdaptiveWorkspace();
+    setFallbackMessage(null);
+    dispatch({ type: "reset" });
+  };
 
   return (
     <>
@@ -34,13 +140,89 @@ export function App() {
       </header>
       <main className="page">
         <Hero
-          builderStarted={builderStarted}
-          onCreateFeed={() => {
-            trackEvent("Feed builder started");
-            setBuilderStarted(true);
-          }}
+          builderStarted={workspace.builderStarted}
+          experimentEnabled={experimentEnabled}
+          onCreateFeed={startGuided}
         />
-        {builderStarted ? <Builder /> : null}
+        {experimentEnabled ? (
+          <section aria-labelledby="interaction-title" className="adaptive-entry">
+            <div className="adaptive-entry__heading-row">
+              <div>
+                <p className="adaptive-entry__eyebrow">Experimental entry point</p>
+                <h2 className="adaptive-entry__title" id="interaction-title">
+                  How would you like to begin?
+                </h2>
+              </div>
+              <span className="adaptive-entry__badge">Local / preview</span>
+            </div>
+            <div aria-label="Feed builder interaction mode" className="adaptive-entry__modes">
+              <button
+                aria-pressed={workspace.selectedMode === "guided"}
+                className="adaptive-entry__mode"
+                onClick={() => chooseMode("guided")}
+                type="button"
+              >
+                <span className="adaptive-entry__mode-title">Guide me</span>
+                <span className="adaptive-entry__mode-detail">
+                  Use the familiar step-by-step builder
+                </span>
+              </button>
+              <button
+                aria-pressed={workspace.selectedMode === "ask"}
+                className="adaptive-entry__mode"
+                onClick={() => chooseMode("ask")}
+                type="button"
+              >
+                <span className="adaptive-entry__mode-title">Ask for a feed</span>
+                <span className="adaptive-entry__mode-detail">
+                  Describe a topic feed in one request
+                </span>
+              </button>
+            </div>
+            {workspace.selectedMode === "guided" && !workspace.builderStarted ? (
+              <button className="hero__cta" onClick={startGuided} type="button">
+                Create feed
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+        {fallbackMessage ? <output className="adaptive-fallback">{fallbackMessage}</output> : null}
+        {experimentEnabled ? (
+          <AskFeed
+            active={workspace.selectedMode === "ask"}
+            composer={workspace.composer}
+            draft={workspace.draft}
+            feedUrl={workspace.feedUrl}
+            issues={workspace.issues}
+            onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
+            onAssistantResult={(userMessage, response) =>
+              dispatch({ type: "assistant-result", userMessage, response })
+            }
+            onComposerChange={(composer) => dispatch({ type: "set-composer", composer })}
+            onGenerate={generateTopicUrl}
+            onGuidedFallback={fallbackToGuided}
+            onSourceChange={(source) => dispatch({ type: "set-source", source })}
+            onStartOver={startOver}
+            onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
+            onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
+            state={workspace.adaptiveState}
+            transcript={workspace.transcript}
+          />
+        ) : null}
+        {workspace.builderStarted ? (
+          <div hidden={workspace.selectedMode !== "guided"}>
+            <Builder
+              active={workspace.selectedMode === "guided"}
+              draft={workspace.draft}
+              feedUrl={workspace.feedUrl}
+              onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
+              onGenerateTopicUrl={generateTopicUrl}
+              onSourceChange={(source) => dispatch({ type: "set-source", source })}
+              onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
+              onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
+            />
+          </div>
+        ) : null}
       </main>
       <footer className="site-footer">
         <div className="site-footer__inner">

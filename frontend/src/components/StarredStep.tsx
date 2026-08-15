@@ -5,6 +5,7 @@ import { feedUrl, fetchStarredRepos, validateUsername, type Repo } from "../lib/
 import { encodeFeedConfig } from "../lib/config";
 import { MAX_STARRED_REPOS } from "../lib/constraints";
 import { useFocusOnMount } from "../hooks/useFocusOnMount";
+import type { FeedDraft, FeedTtl } from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import "../styles/feed-config.css";
 import "../styles/starred-step.css";
@@ -25,6 +26,8 @@ export function StarredStep() {
   const [filter, setFilter] = useState("");
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
+  const [activityType, setActivityType] = useState<FeedDraft["activityType"]>("releases");
+  const [ttl, setTtl] = useState<FeedTtl>(3600);
 
   const debouncedUsername = useDebounce(username.trim(), DEBOUNCE_MS);
 
@@ -113,7 +116,10 @@ export function StarredStep() {
     setSelectedRepos((current) => {
       const next = new Set(current);
       for (const repo of filteredRepos) {
-        if (next.size >= MAX_STARRED_REPOS) break;
+        if (next.size >= MAX_STARRED_REPOS) {
+          break;
+        }
+
         next.add(repo.full_name);
       }
       return next;
@@ -296,9 +302,13 @@ export function StarredStep() {
 
       {hasRepos ? (
         <FeedConfigPanel
+          activityType={activityType}
           disabled={selectedRepos.size === 0}
-          onConfigChange={() => setGeneratedUrl(null)}
-          onGenerate={(activityType, ttl) => {
+          onActivityChange={(nextActivityType) => {
+            setActivityType(nextActivityType);
+            setGeneratedUrl(null);
+          }}
+          onGenerate={() => {
             const repoList = [...selectedRepos];
             setGeneratedUrl(
               feedUrl(
@@ -314,6 +324,11 @@ export function StarredStep() {
             );
             trackEvent("Feed URL generated successfully", { source: "starred" });
           }}
+          onTtlChange={(nextTtl) => {
+            setTtl(nextTtl);
+            setGeneratedUrl(null);
+          }}
+          ttl={ttl}
         />
       ) : null}
 

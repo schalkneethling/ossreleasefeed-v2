@@ -5,6 +5,16 @@ export type WorkerBindings = {
   APP_NAME: string;
   GITHUB_PAT: string;
   SENTRY_DSN?: string;
+  AI?: {
+    run(
+      model: string,
+      input: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ): Promise<unknown>;
+  };
+  FLAGS?: Flagship;
+  ASSISTANT_CLIENT_RATE_LIMITER?: RateLimit;
+  ASSISTANT_NETWORK_RATE_LIMITER?: RateLimit;
 };
 
 export type AppVariables = {
