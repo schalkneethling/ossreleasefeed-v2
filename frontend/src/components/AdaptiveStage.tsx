@@ -105,10 +105,9 @@ const COMPONENT_REGISTRY: Record<RegisteredComponent, ComponentType<RegistryProp
 
 const componentsForState = (
   state: AdaptiveState,
-  draft: FeedDraft,
   issues: readonly string[],
 ): RegisteredComponent[] => {
-  if (state === "idle" || state === "choose-source") {
+  if (state === "choose-source") {
     return ["feed-types"];
   }
 
@@ -116,9 +115,13 @@ const componentsForState = (
     return ["feed-types", ...(issues.length > 0 ? (["validation-issues"] as const) : [])];
   }
 
-  const topicComponents: RegisteredComponent[] = ["recipe", "topic-choices"];
+  const topicComponents: RegisteredComponent[] = [];
 
-  if (draft.topics.length > 0 && state !== "edit-topics") {
+  if (state === "edit-topics") {
+    topicComponents.push("topic-choices");
+  }
+
+  if (state === "edit-settings") {
     topicComponents.push("settings");
   }
 
@@ -127,6 +130,7 @@ const componentsForState = (
   }
 
   if (state === "ready") {
+    topicComponents.push("recipe");
     topicComponents.push("generated-url");
   }
 
@@ -134,7 +138,11 @@ const componentsForState = (
 };
 
 export function AdaptiveStage({ state, ...props }: RegistryProps & { state: AdaptiveState }) {
-  const components = componentsForState(state, props.draft, props.issues);
+  if (state === "idle") {
+    return null;
+  }
+
+  const components = componentsForState(state, props.issues);
 
   return (
     <div className="adaptive-stage-registry">

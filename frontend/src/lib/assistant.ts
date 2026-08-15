@@ -32,7 +32,7 @@ const DRAFT_KEYS = [
   "format",
   "topicOperator",
 ] as const;
-const RESPONSE_KEYS = ["state", "draft", "message", "issues", "feedUrl"] as const;
+const RESPONSE_KEYS = ["state", "draft", "message", "issues", "feedUrl", "showUi"] as const;
 const EXPERIMENT_RESPONSE_KEYS = ["adaptiveFeedBuilder"] as const;
 const EXPERIMENT_KEY_STORAGE = "ossreleasefeed:experiment-key";
 const EXPERIMENT_KEY = /^[A-Za-z0-9_-]{16,128}$/u;
@@ -56,6 +56,7 @@ export type AssistantTurnResponse = {
   message: string;
   issues: string[];
   feedUrl: string | null;
+  showUi: boolean;
 };
 
 let inMemoryExperimentKey: string | undefined;
@@ -225,13 +226,20 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
     return false;
   }
 
-  if (!isStringArray(value.issues, 5) || !isSecureFeedUrl(value.feedUrl)) {
+  if (
+    !isStringArray(value.issues, 5) ||
+    !isSecureFeedUrl(value.feedUrl) ||
+    typeof value.showUi !== "boolean"
+  ) {
     return false;
   }
 
   if (value.state === "ready") {
     return (
-      value.draft.source === "topics" && value.draft.topics.length > 0 && value.feedUrl !== null
+      value.draft.source === "topics" &&
+      value.draft.topics.length > 0 &&
+      value.feedUrl !== null &&
+      value.showUi
     );
   }
 

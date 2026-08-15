@@ -194,6 +194,7 @@ export function App() {
             draft={workspace.draft}
             feedUrl={workspace.feedUrl}
             issues={workspace.issues}
+            showUi={workspace.showUi}
             onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
             onAssistantResult={(userMessage, response) =>
               dispatch({ type: "assistant-result", userMessage, response })

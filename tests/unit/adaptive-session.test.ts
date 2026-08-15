@@ -19,6 +19,7 @@ const readyResponse = {
   message: "Your topic feed is ready.",
   issues: [],
   feedUrl: "https://example.com/feed/token",
+  showUi: true,
 };
 
 describe("adaptive workspace", () => {
@@ -84,6 +85,7 @@ describe("adaptive workspace", () => {
       adaptiveState: "ready",
       draft: readyResponse.draft,
       feedUrl: readyResponse.feedUrl,
+      showUi: true,
       transcript: [
         { role: "user", content: "Create a CSS feed" },
         { role: "assistant", content: "Your topic feed is ready." },
@@ -125,6 +127,18 @@ describe("adaptive workspace", () => {
     expect(
       parsePersistedWorkspace(
         JSON.stringify({ ...base, feedUrl: "https://example.com/feed/stale" }),
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedWorkspace(
+        JSON.stringify({
+          ...base,
+          adaptiveState: "ready",
+          draft: readyResponse.draft,
+          feedUrl: readyResponse.feedUrl,
+          showUi: false,
+        }),
         now,
       ),
     ).toBeNull();

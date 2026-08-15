@@ -18,6 +18,9 @@ export {
 export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
   "explain-capabilities",
+  "list-topics",
+  "list-settings",
+  "show-ui",
   "unsupported",
 ] as const;
 
@@ -59,6 +62,7 @@ export type AssistantTurnResponse = {
   message: string;
   issues: string[];
   feedUrl: string | null;
+  showUi: boolean;
 };
 
 export type ModelDraftPatch = Partial<FeedDraft>;
