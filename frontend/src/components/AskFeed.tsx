@@ -210,6 +210,7 @@ export function AskFeed({
           onTopicsChange={onTopicsChange}
           onTtlChange={onTtlChange}
           state={state}
+          ttlSelected={ttlSelected}
         />
       ) : null}
 

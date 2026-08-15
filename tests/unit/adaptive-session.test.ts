@@ -42,6 +42,7 @@ describe("adaptive workspace", () => {
       ttl: 86400,
     });
 
+    expect(ready.ttlSelected).toBe(false);
     expect(changed.draft).toMatchObject({
       source: "topics",
       topics: ["css"],
@@ -118,6 +119,25 @@ describe("adaptive workspace", () => {
       draft: { source: "topics", topics: ["css"] },
       selectedMode: "ask",
       composer: "Change it to TypeScript",
+    });
+  });
+
+  it("restores a Guided URL without treating the default interval as an Ask selection", () => {
+    const now = Date.UTC(2026, 6, 19);
+    const serialized = JSON.stringify({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "ready",
+      draft: readyResponse.draft,
+      feedUrl: readyResponse.feedUrl,
+      showUi: true,
+      version: ADAPTIVE_SESSION_VERSION,
+      savedAt: now,
+    });
+
+    expect(parsePersistedWorkspace(serialized, now)).toMatchObject({
+      adaptiveState: "ready",
+      selectedMode: "guided",
+      ttlSelected: false,
     });
   });
 

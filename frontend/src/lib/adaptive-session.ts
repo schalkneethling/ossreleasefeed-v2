@@ -221,7 +221,7 @@ export const adaptiveWorkspaceReducer = (
         feedUrl: action.feedUrl,
         issues: [],
         showUi: true,
-        ttlSelected: true,
+        ttlSelected: workspace.ttlSelected,
       };
     }
     case "assistant-result": {
@@ -256,6 +256,7 @@ const isStateConsistentWithWorkspace = (
   feedUrl: string | null,
   showUi: boolean,
   ttlSelected: boolean,
+  selectedMode: InteractionMode,
 ): boolean => {
   if (feedUrl !== null) {
     return (
@@ -263,7 +264,7 @@ const isStateConsistentWithWorkspace = (
       draft.source === "topics" &&
       draft.topics.length > 0 &&
       showUi &&
-      ttlSelected
+      (selectedMode === "guided" || ttlSelected)
     );
   }
 
@@ -337,6 +338,7 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
       value.feedUrl,
       value.showUi,
       value.ttlSelected,
+      value.selectedMode,
     )
   ) {
     return false;

@@ -9,6 +9,7 @@ type RegistryProps = {
   draft: FeedDraft;
   feedUrl: string | null;
   issues: string[];
+  ttlSelected: boolean;
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onGenerate: () => void;
   onGuidedFallback: (disabled: boolean) => void;
@@ -65,13 +66,20 @@ const TopicChoices = ({ active, draft, onTopicsChange }: RegistryProps) => (
   </section>
 );
 
-const Settings = ({ draft, onActivityChange, onGenerate, onTtlChange }: RegistryProps) => (
+const Settings = ({
+  draft,
+  onActivityChange,
+  onGenerate,
+  onTtlChange,
+  ttlSelected,
+}: RegistryProps) => (
   <FeedConfigPanel
     activityType={draft.activityType}
     onActivityChange={onActivityChange}
     onGenerate={onGenerate}
     onTtlChange={onTtlChange}
     ttl={draft.ttl}
+    ttlSelected={ttlSelected}
   />
 );
 

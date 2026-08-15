@@ -250,7 +250,10 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("checkbox", { name: "CSS" }).click();
 
     await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeVisible();
+    await expect(page.getByLabel("Update frequency")).toHaveValue("");
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeDisabled();
+    await page.getByLabel("Update frequency").selectOption("3600");
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeEnabled();
     await page.getByRole("button", { name: /generate feed url/i }).click();
     await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
   });

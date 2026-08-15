@@ -14,6 +14,7 @@ const COPY_RESET_MS = 2000;
 export function FeedConfigPanel({
   activityType,
   ttl,
+  ttlSelected = true,
   disabled = false,
   onGenerate,
   onActivityChange,
@@ -21,6 +22,7 @@ export function FeedConfigPanel({
 }: {
   activityType: FeedDraft["activityType"];
   ttl: FeedTtl;
+  ttlSelected?: boolean;
   disabled?: boolean;
   onGenerate: () => void;
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
@@ -71,8 +73,13 @@ export function FeedConfigPanel({
             className="feed-config__select"
             id={ttlId}
             onChange={(event) => onTtlChange(Number(event.target.value) as FeedTtl)}
-            value={ttl}
+            value={ttlSelected ? ttl : ""}
           >
+            {!ttlSelected ? (
+              <option disabled value="">
+                Choose an update frequency
+              </option>
+            ) : null}
             {TTL_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -84,7 +91,7 @@ export function FeedConfigPanel({
 
       <button
         className="feed-config__submit"
-        disabled={disabled}
+        disabled={disabled || !ttlSelected}
         onClick={onGenerate}
         type="button"
       >
