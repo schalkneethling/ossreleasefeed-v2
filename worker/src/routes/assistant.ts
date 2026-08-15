@@ -209,14 +209,27 @@ const checkRateLimits = async (ctx: Parameters<typeof evaluateAdaptiveFeedBuilde
   }
 };
 
+type ResponseOptions = {
+  ttlSelected: boolean;
+  issues?: string[];
+  feedUrl?: string | null;
+  showUi?: boolean;
+};
+
 const responseFor = (
   state: AssistantTurnResponse["state"],
   draft: FeedDraft,
   message: string,
-  issues: string[] = [],
-  feedUrl: string | null = null,
-  showUi = false,
-): AssistantTurnResponse => ({ state, draft, message, issues, feedUrl, showUi });
+  { ttlSelected, issues = [], feedUrl = null, showUi = false }: ResponseOptions,
+): AssistantTurnResponse => ({
+  state,
+  draft,
+  message,
+  issues,
+  feedUrl,
+  showUi,
+  ttlSelected,
+});
 
 const formatTopicList = (topics: readonly string[]): string => {
   if (topics.length === 1) {
@@ -236,11 +249,7 @@ const topicSelectionMessage = (topics: readonly string[]): string => {
 };
 
 const stateForVisibleUi = (state: AssistantTurnResponse["state"], draft: FeedDraft) => {
-  if (draft.source === null) {
-    return "choose-source" as const;
-  }
-
-  if (draft.source === "starred") {
+  if (draft.source === null || draft.source === "starred") {
     return "choose-source" as const;
   }
 
@@ -258,6 +267,10 @@ const featuredTopicMessage = async (githubLayer: AppEnv["Variables"]["githubLaye
     ),
   );
   const examples = topics.slice(0, 4).map((topic) => topic.display_name ?? topic.name);
+
+  if (examples.length === 0) {
+    return "Featured topics are temporarily unavailable. You can still specify any GitHub topic.";
+  }
 
   return `Featured topics include ${examples.join(", ")}. You can also specify your own GitHub topics.`;
 };
@@ -375,14 +388,31 @@ assistantRoutes.post("/turn", async (ctx) => {
       visibleState === "ready" ? createTopicFeedUrl(payload.draft, ctx.req.url) : null;
 
     return ctx.json(
-      responseFor(
-        visibleState,
-        payload.draft,
-        "Here is the interface for your current feed.",
-        [],
+      responseFor(visibleState, payload.draft, "Here is the interface for your current feed.", {
+        ttlSelected: payload.ttlSelected,
+        issues: payload.issues,
         feedUrl,
-        true,
-      ),
+        showUi: true,
+      }),
+    );
+  }
+
+  if (decision.intent === "list-settings") {
+    const hasSelectedTopics = payload.draft.source === "topics" && payload.draft.topics.length > 0;
+    const settingsState = hasSelectedTopics ? "edit-settings" : payload.state;
+
+    if (
+      (hasSelectedTopics && decision.proposedState !== "edit-settings") ||
+      !isLegalTransition(payload.state, settingsState)
+    ) {
+      return ctx.json({ error: "Assistant response was invalid" }, 502);
+    }
+
+    return ctx.json(
+      responseFor(settingsState, payload.draft, SETTINGS_OPTIONS_MESSAGE, {
+        ttlSelected: payload.ttlSelected,
+        issues: payload.issues,
+      }),
     );
   }
 
@@ -396,11 +426,14 @@ assistantRoutes.post("/turn", async (ctx) => {
     }
 
     return ctx.json(
-      responseFor("choose-source", payload.draft, CAPABILITIES_MESSAGE, [], null, false),
+      responseFor("choose-source", payload.draft, CAPABILITIES_MESSAGE, {
+        ttlSelected: payload.ttlSelected,
+      }),
     );
   }
 
   const candidate = applyDraftPatch(payload.draft, decision.draftPatch);
+  const candidateTtlSelected = payload.ttlSelected || "ttl" in decision.draftPatch;
 
   if (decision.intent === "list-topics") {
     if (candidate.source !== "topics" || decision.proposedState !== "edit-topics") {
@@ -409,32 +442,13 @@ assistantRoutes.post("/turn", async (ctx) => {
 
     try {
       return ctx.json(
-        responseFor(
-          "edit-topics",
-          candidate,
-          await featuredTopicMessage(ctx.var.githubLayer),
-          [],
-          null,
-          false,
-        ),
+        responseFor("edit-topics", candidate, await featuredTopicMessage(ctx.var.githubLayer), {
+          ttlSelected: candidateTtlSelected,
+        }),
       );
     } catch {
       return ctx.json({ error: "Topic discovery temporarily unavailable" }, 503);
     }
-  }
-
-  if (decision.intent === "list-settings") {
-    if (
-      candidate.source !== "topics" ||
-      candidate.topics.length === 0 ||
-      decision.proposedState !== "edit-settings"
-    ) {
-      return ctx.json({ error: "Assistant response was invalid" }, 502);
-    }
-
-    return ctx.json(
-      responseFor("edit-settings", candidate, SETTINGS_OPTIONS_MESSAGE, [], null, false),
-    );
   }
 
   if (candidate.source === "starred") {
@@ -443,16 +457,20 @@ assistantRoutes.post("/turn", async (ctx) => {
         "recoverable-error",
         candidate,
         "Ask mode does not build starred-repository feeds yet.",
-        ["Continue with Guide me to build this feed from starred repositories."],
+        {
+          ttlSelected: candidateTtlSelected,
+          issues: ["Continue with Guide me to build this feed from starred repositories."],
+        },
       ),
     );
   }
 
   if (decision.intent === "unsupported" && candidate.source !== "topics") {
     return ctx.json(
-      responseFor("recoverable-error", candidate, "That request cannot be used to create a feed.", [
-        "Try describing a topic feed.",
-      ]),
+      responseFor("recoverable-error", candidate, "That request cannot be used to create a feed.", {
+        ttlSelected: candidateTtlSelected,
+        issues: ["Try describing a topic feed."],
+      }),
     );
   }
 
@@ -466,13 +484,16 @@ assistantRoutes.post("/turn", async (ctx) => {
         "choose-source",
         candidate,
         "Choose whether to build from GitHub topics or starred repositories.",
+        { ttlSelected: candidateTtlSelected },
       ),
     );
   }
 
   if (candidate.topics.length === 0) {
     return ctx.json(
-      responseFor("edit-topics", candidate, "Choose one or more GitHub topics for this feed."),
+      responseFor("edit-topics", candidate, "Choose one or more GitHub topics for this feed.", {
+        ttlSelected: candidateTtlSelected,
+      }),
     );
   }
 
@@ -494,20 +515,27 @@ assistantRoutes.post("/turn", async (ctx) => {
         "edit-topics",
         { ...candidate, topics: topicValidation.valid },
         "Some topics could not be found on GitHub.",
-        decision.intent === "unsupported" ? [validationIssue, SETTINGS_ISSUE] : [validationIssue],
+        {
+          ttlSelected: candidateTtlSelected,
+          issues:
+            decision.intent === "unsupported"
+              ? [validationIssue, SETTINGS_ISSUE]
+              : [validationIssue],
+        },
       ),
     );
   }
 
   if (decision.intent === "unsupported") {
     return ctx.json(
-      responseFor("edit-settings", candidate, "That update frequency is not available.", [
-        SETTINGS_ISSUE,
-      ]),
+      responseFor("edit-settings", candidate, "That update frequency is not available.", {
+        ttlSelected: candidateTtlSelected,
+        issues: [SETTINGS_ISSUE],
+      }),
     );
   }
 
-  const needsExplicitTtl = payload.state !== "ready" && !("ttl" in decision.draftPatch);
+  const needsExplicitTtl = !candidateTtlSelected;
 
   if (
     decision.proposedState === "edit-topics" ||
@@ -515,7 +543,9 @@ assistantRoutes.post("/turn", async (ctx) => {
     needsExplicitTtl
   ) {
     return ctx.json(
-      responseFor("edit-settings", candidate, topicSelectionMessage(candidate.topics)),
+      responseFor("edit-settings", candidate, topicSelectionMessage(candidate.topics), {
+        ttlSelected: candidateTtlSelected,
+      }),
     );
   }
 
@@ -524,13 +554,10 @@ assistantRoutes.post("/turn", async (ctx) => {
   }
 
   return ctx.json(
-    responseFor(
-      "ready",
-      candidate,
-      "Your topic feed is ready.",
-      [],
-      createTopicFeedUrl(candidate, ctx.req.url),
-      true,
-    ),
+    responseFor("ready", candidate, "Your topic feed is ready.", {
+      ttlSelected: candidateTtlSelected,
+      feedUrl: createTopicFeedUrl(candidate, ctx.req.url),
+      showUi: true,
+    }),
   );
 });

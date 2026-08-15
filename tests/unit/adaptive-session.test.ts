@@ -20,6 +20,7 @@ const readyResponse = {
   issues: [],
   feedUrl: "https://example.com/feed/token",
   showUi: true,
+  ttlSelected: true,
 };
 
 describe("adaptive workspace", () => {
@@ -48,6 +49,21 @@ describe("adaptive workspace", () => {
     });
     expect(changed.adaptiveState).toBe("edit-settings");
     expect(changed.feedUrl).toBeNull();
+    expect(changed.ttlSelected).toBe(true);
+  });
+
+  it("reveals controls only for Ask-mode builder actions", () => {
+    const guided = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+      type: "set-topics",
+      topics: ["css"],
+    });
+    const ask = adaptiveWorkspaceReducer(
+      { ...DEFAULT_ADAPTIVE_WORKSPACE, selectedMode: "ask" },
+      { type: "set-topics", topics: ["css"] },
+    );
+
+    expect(guided.showUi).toBe(false);
+    expect(ask.showUi).toBe(true);
   });
 
   it("records a successful assistant turn and preserves it across mode changes", () => {
@@ -86,6 +102,7 @@ describe("adaptive workspace", () => {
       draft: readyResponse.draft,
       feedUrl: readyResponse.feedUrl,
       showUi: true,
+      ttlSelected: true,
       transcript: [
         { role: "user", content: "Create a CSS feed" },
         { role: "assistant", content: "Your topic feed is ready." },

@@ -57,6 +57,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: "https://worker.example/feed/canonical-token",
           showUi: true,
+          ttlSelected: true,
         },
       });
     });
@@ -114,6 +115,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: "http://malicious.example/feed/canonical-token",
           showUi: true,
+          ttlSelected: true,
         },
       }),
     );
@@ -218,6 +220,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: null,
           showUi: requestNumber > 1,
+          ttlSelected: false,
         },
       });
     });
@@ -268,6 +271,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: null,
           showUi: requestNumber > 1,
+          ttlSelected: false,
         },
       });
     });
@@ -333,6 +337,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: null,
           showUi: requestNumber > 2,
+          ttlSelected: false,
         },
       });
     });
@@ -387,6 +392,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: [],
             feedUrl: "https://worker.example/feed/first-token",
             showUi: true,
+            ttlSelected: true,
           },
         });
         return;
@@ -401,6 +407,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: "https://worker.example/feed/second-token",
           showUi: true,
+          ttlSelected: true,
         },
       });
     });
@@ -440,6 +447,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: ["Check: not-a-real-topic"],
             feedUrl: null,
             showUi: false,
+            ttlSelected: false,
           },
           {
             state: "edit-topics",
@@ -448,6 +456,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: ["Check: not-a-real-topic"],
             feedUrl: null,
             showUi: true,
+            ttlSelected: false,
           },
           {
             state: "edit-settings",
@@ -456,6 +465,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
             feedUrl: null,
             showUi: false,
+            ttlSelected: false,
           },
           {
             state: "edit-settings",
@@ -464,6 +474,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: ["Choose 1 hour, 6 hours, 24 hours, or 1 week."],
             feedUrl: null,
             showUi: true,
+            ttlSelected: false,
           },
         ][requestNumber - 1] ?? {
           state: "edit-topics",
@@ -472,6 +483,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: null,
           showUi: false,
+          ttlSelected: false,
         },
       });
     });
@@ -513,6 +525,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: null,
           showUi: true,
+          ttlSelected: false,
         },
       }),
     );
@@ -550,6 +563,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           feedUrl: "https://worker.example/feed/reset-token",
           showUi: true,
+          ttlSelected: true,
         },
       }),
     );
@@ -591,6 +605,7 @@ test.describe("adaptive feed Phase 2", () => {
             issues: [],
             feedUrl: null,
             showUi: false,
+            ttlSelected: false,
           },
         });
       }
@@ -649,7 +664,7 @@ test.describe("adaptive feed Phase 2", () => {
       localStorage.setItem(
         "ossreleasefeed:adaptive-session",
         JSON.stringify({
-          version: 2,
+          version: 3,
           savedAt: Date.now(),
           adaptiveState: "edit-topics",
           draft: {
@@ -667,6 +682,7 @@ test.describe("adaptive feed Phase 2", () => {
           composer: "Saved Ask request",
           issues: [],
           showUi: false,
+          ttlSelected: false,
           selectedMode: "ask",
           builderStarted: false,
         }),

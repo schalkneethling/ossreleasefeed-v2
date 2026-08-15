@@ -208,6 +208,7 @@ export function App() {
             onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
             state={workspace.adaptiveState}
             transcript={workspace.transcript}
+            ttlSelected={workspace.ttlSelected}
           />
         ) : null}
         {workspace.builderStarted ? (

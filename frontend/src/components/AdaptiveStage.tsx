@@ -144,6 +144,10 @@ export function AdaptiveStage({ state, ...props }: RegistryProps & { state: Adap
 
   const components = componentsForState(state, props.issues);
 
+  if (components.length === 0) {
+    return null;
+  }
+
   return (
     <div className="adaptive-stage-registry">
       {components.map((componentName) =>

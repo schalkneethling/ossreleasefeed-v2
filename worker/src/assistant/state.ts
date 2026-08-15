@@ -9,7 +9,7 @@ import { LEGAL_TRANSITIONS } from "../../../shared/adaptive-contracts";
 export { LEGAL_TRANSITIONS } from "../../../shared/adaptive-contracts";
 
 export const isLegalTransition = (current: AdaptiveState, proposed: AdaptiveState): boolean =>
-  LEGAL_TRANSITIONS[current].includes(proposed);
+  current === proposed || LEGAL_TRANSITIONS[current].includes(proposed);
 
 export const normalizeTopics = (topics: readonly string[]): string[] => [
   ...new Set(topics.map((topic) => topic.trim().toLowerCase()).filter(Boolean)),

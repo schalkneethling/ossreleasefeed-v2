@@ -24,6 +24,7 @@ type AskFeedProps = {
   issues: string[];
   showUi: boolean;
   state: AdaptiveState;
+  ttlSelected: boolean;
   transcript: AssistantHistoryTurn[];
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onAssistantResult: (userMessage: string, response: AssistantTurnResponse) => void;
@@ -52,6 +53,7 @@ export function AskFeed({
   issues,
   showUi,
   state,
+  ttlSelected,
   transcript,
   onActivityChange,
   onAssistantResult,
@@ -119,6 +121,8 @@ export function AskFeed({
           history: transcript.slice(-6),
           state,
           draft,
+          issues,
+          ttlSelected,
         },
         experimentKeyRef.current,
         controller.signal,
