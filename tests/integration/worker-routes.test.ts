@@ -1,8 +1,9 @@
+import { Either } from "effect";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../../worker/src/index";
 import { DEFAULT_FEED_DRAFT } from "../../worker/src/assistant/contracts";
-import { encodeFeedConfig } from "../../worker/src/lib/config";
+import { decodeFeedConfig, encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
 import { captureFeedError } from "../../worker/src/lib/sentry";
 import type { WorkerBindings } from "../../worker/src/lib/types";
@@ -589,7 +590,7 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "choose-repos",
+        proposedState: "enter-username",
         draftPatch: {
           source: "topics",
           topics: ["css"],
@@ -598,7 +599,10 @@ describe("POST /api/assistant/turn", () => {
         },
       },
     });
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+    const response = await postAssistant(
+      { ...assistantRequest("Create a CSS feed"), state: "edit-topics" as const },
+      bindings,
+    );
 
     expect(response.status).toBe(502);
     expect(githubCalls).toHaveLength(0);
@@ -829,7 +833,8 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("returns to source choices when UI is requested after an unsupported starred request", async () => {
+  it("reveals the username field when UI is requested for a starred draft", async () => {
+    const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "show-ui",
@@ -849,12 +854,43 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      state: "choose-source",
-      draft: { source: "starred" },
+      state: "enter-username",
+      draft: { source: "starred", username: null },
       issues: [],
       feedUrl: null,
       showUi: true,
     });
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("reveals the repository picker when UI is requested for a starred username", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "show-ui",
+        proposedState: "recoverable-error",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Show UI"),
+        state: "recoverable-error",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "starred", username: "octocat" },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat" },
+      issues: [],
+      feedUrl: null,
+      showUi: true,
+    });
+    expect(githubCalls).toHaveLength(0);
   });
 
   it("asks for topics without revealing controls for an incomplete topic request", async () => {
@@ -1075,12 +1111,59 @@ describe("POST /api/assistant/turn", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("returns a recoverable response for starred-repository requests", async () => {
+  const octocatUserHandler = ({ found = true }: { found?: boolean } = {}) =>
+    http.get("https://api.github.com/users/octocat", () =>
+      found
+        ? HttpResponse.json({ login: "octocat" })
+        : HttpResponse.json({ message: "Not Found" }, { status: 404 }),
+    );
+
+  const octocatStarsHandler = (repos: unknown[] = [repoFixture]) =>
+    http.get("https://api.github.com/users/octocat/starred", () => HttpResponse.json(repos));
+
+  const expectValidFeedToken = (token: string) => {
+    const decoded = decodeFeedConfig(token);
+
+    if (!Either.isRight(decoded)) {
+      throw new Error("Expected a valid starred feed token");
+    }
+
+    return decoded.right;
+  };
+
+  it("asks for a GitHub username when a starred request has none", async () => {
     const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "recoverable-error",
+        proposedState: "enter-username",
+        draftPatch: { source: "starred" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from my starred repositories"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
+      draft: { source: "starred", username: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("Which GitHub username");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("validates a username and asks whether to use all starred repositories", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "enter-username",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1092,11 +1175,297 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      state: "recoverable-error",
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat", repoSelection: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("Found @octocat");
+    expect(payload.message).toContain("all of their starred repositories or a specific selection");
+  });
+
+  it("reports an unknown GitHub username", async () => {
+    server.use(octocatUserHandler({ found: false }));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "enter-username",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from octocat's starred repositories"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
       draft: { source: "starred", username: "octocat" },
       feedUrl: null,
-      issues: ["Continue with Guide me to build this feed from starred repositories."],
     });
+    expect(payload.issues).toEqual(["No GitHub user found with the username “octocat”."]);
+  });
+
+  it("reports a GitHub user with no starred repositories", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "enter-username",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from octocat's starred repositories"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("enter-username");
+    expect(payload.issues).toEqual(["@octocat has no public starred repositories."]);
+  });
+
+  it("generates an all-starred feed URL in one turn", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: {
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "all" },
+          ttl: 86400,
+        },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("All of octocat's starred repositories, updating every 24 hours"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "all" },
+        ttl: 86400,
+      },
+      showUi: true,
+      ttlSelected: true,
+    });
+    const token = new URL(payload.feedUrl).pathname.replace("/feed/", "");
+
+    expect(expectValidFeedToken(token)).toMatchObject({
+      source: "starred",
+      username: "octocat",
+      repos: null,
+      ttl: 86400,
+    });
+  });
+
+  it("reports repositories that are not in the user's starred list", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: {
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "subset", repos: ["example/repo", "not-starred/repo"] },
+          ttl: 86400,
+        },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Follow example/repo and not-starred/repo from octocat"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["example/repo"] },
+      },
+      feedUrl: null,
+    });
+    expect(payload.issues).toEqual([
+      "“not-starred/repo” is not among @octocat's starred repositories.",
+    ]);
+  });
+
+  it("generates a subset starred feed URL after validating the selection", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: {
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "subset", repos: ["example/repo"] },
+          ttl: 86400,
+        },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Follow example/repo from octocat, updating every 24 hours"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("ready");
+    const token = new URL(payload.feedUrl).pathname.replace("/feed/", "");
+
+    expect(expectValidFeedToken(token)).toMatchObject({
+      source: "starred",
+      username: "octocat",
+      repos: ["example/repo"],
+      ttl: 86400,
+    });
+  });
+
+  it("lists update frequencies for a starred draft in the repository state", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-settings",
+        proposedState: "edit-settings",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("What update frequencies are available?"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "all" },
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat", repoSelection: { kind: "all" } },
+      feedUrl: null,
+      showUi: false,
+    });
+    expect(payload.message).toContain("1 hour, 6 hours, 24 hours, or 1 week");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("keeps an all-starred feed in choose-repos until a frequency is selected", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "choose-repos",
+        draftPatch: {
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "all" },
+        },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("All of octocat's starred repositories"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { repoSelection: { kind: "all" } },
+      feedUrl: null,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("choose how often the feed should update");
+  });
+
+  it("guides update-frequency selection when a starred interval is unsupported", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "unsupported",
+        proposedState: "choose-repos",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("octocat's starred repos updating every 12 hours"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat" },
+      feedUrl: null,
+    });
+    expect(payload.issues).toEqual(["Choose 1 hour, 6 hours, 24 hours, or 1 week."]);
+  });
+
+  it("returns 503 when GitHub is unavailable during starred validation", async () => {
+    server.use(
+      http.get("https://api.github.com/users/octocat", () =>
+        HttpResponse.json({ message: "boom" }, { status: 503 }),
+      ),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "enter-username",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from octocat's starred repositories"),
+      bindings,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "Starred repository lookup temporarily unavailable",
+    });
+  });
+
+  it("rejects a starred ready state proposed without a selection", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        proposedState: "ready",
+        draftPatch: { source: "starred", username: "octocat" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("Create a feed from octocat's starred repositories"),
+      bindings,
+    );
+
+    expect(response.status).toBe(502);
     expect(githubCalls).toHaveLength(0);
   });
 });

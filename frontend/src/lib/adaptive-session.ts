@@ -55,6 +55,8 @@ export type AdaptiveAction =
   | { type: "set-composer"; composer: string }
   | { type: "set-source"; source: FeedDraft["source"] }
   | { type: "set-topics"; topics: string[] }
+  | { type: "set-username"; username: string }
+  | { type: "set-repo-selection"; repoSelection: FeedDraft["repoSelection"] }
   | { type: "set-activity"; activityType: FeedDraft["activityType"] }
   | { type: "set-ttl"; ttl: FeedDraft["ttl"] }
   | { type: "set-feed-url"; feedUrl: string }
@@ -114,7 +116,7 @@ const stateForDraftChange = (draft: FeedDraft): AdaptiveState => {
   }
 
   if (draft.source === "starred") {
-    return "enter-username";
+    return draft.username === null ? "enter-username" : "choose-repos";
   }
 
   return draft.topics.length > 0 ? "edit-settings" : "edit-topics";
@@ -208,6 +210,17 @@ export const adaptiveWorkspaceReducer = (
     case "set-topics": {
       return updateDraft(workspace, { source: "topics", topics: [...action.topics] });
     }
+    case "set-username": {
+      const username = action.username.trim();
+
+      return updateDraft(workspace, {
+        username: username === "" ? null : username,
+        repoSelection: null,
+      });
+    }
+    case "set-repo-selection": {
+      return updateDraft(workspace, { repoSelection: action.repoSelection });
+    }
     case "set-activity": {
       return updateDraft(workspace, { activityType: action.activityType });
     }
@@ -259,10 +272,13 @@ const isStateConsistentWithWorkspace = (
   selectedMode: InteractionMode,
 ): boolean => {
   if (feedUrl !== null) {
+    const completeTopics = draft.source === "topics" && draft.topics.length > 0;
+    const completeStarred =
+      draft.source === "starred" && draft.username !== null && draft.repoSelection !== null;
+
     return (
       state === "ready" &&
-      draft.source === "topics" &&
-      draft.topics.length > 0 &&
+      (completeTopics || completeStarred) &&
       showUi &&
       (selectedMode === "guided" || ttlSelected)
     );

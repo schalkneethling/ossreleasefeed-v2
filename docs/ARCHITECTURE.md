@@ -176,13 +176,14 @@ Both steps use the same `FeedConfigPanel` for the final activity-type/TTL
 choice and URL generation; changing any upstream selection clears a
 previously generated URL so it can't silently go stale in the UI.
 
-## Adaptive feed experiment (Phase 2)
+## Adaptive feed experiment (Phase 3)
 
 The `adaptive-feed-builder` Flagship flag defaults to `false` and currently
 serves `true` only when the trusted request surface is `local` or `preview`.
 The homepage fetches `GET /api/experiments` with a stable anonymous key. When
 enabled, a user can choose the unchanged Guided flow or use a multi-turn typed
-topic builder backed by `POST /api/assistant/turn`.
+builder backed by `POST /api/assistant/turn` for both topic and
+starred-repository feeds.
 
 The browser first persists the anonymous key in local storage, then falls back
 to session storage. It also retains the key in module memory, so every turn in
@@ -209,13 +210,25 @@ supplies markup or a URL. Missing bindings and evaluation errors fail closed;
 disabling the flag makes new assistant turns return `404`.
 
 The browser and Worker share the same legal transition table for `idle`, source
-choice, topic editing, settings editing, ready, and recoverable-error states.
-The model proposes a transition and a partial draft patch; the Worker applies
-the patch, verifies the transition and resulting state, validates the complete
-topic set, and returns deterministic product copy and an optional generated
+choice, topic editing, username entry, repository choice, settings editing,
+ready, and recoverable-error states. The model proposes a transition and a
+partial draft patch; the Worker applies the patch, verifies the transition and
+resulting state, validates the complete topic set or the starred-repository
+selection, and returns deterministic product copy and an optional generated
 URL. Capability questions, incomplete requests, corrections, invalid topics,
-and unsupported update intervals therefore all use the same authoritative
-state machine rather than model-generated UI.
+invalid or starless usernames, repository subsets that are not starred, and
+unsupported update intervals therefore all use the same authoritative state
+machine rather than model-generated UI.
+
+Starred-repository turns validate the username format, its existence, and its
+public starred count through GitHub before any repository work. An explicit
+“all” request builds the feed URL with a `null` repository list (the feed
+generator fetches and caps the starred set at generation time); a named subset
+is checked against the user's fetched public starred repositories and the
+invalid names are reported as issues. The 25-repository cap, no-user,
+no-stars, and GitHub-error behavior match the Guided flow, and activity and
+update-frequency changes work through conversation or the revealed settings
+panel in the repository-choice state.
 
 Informational turns remain conversational. Feed-type questions return a short
 text explanation, and topic-discovery questions use the current featured-topic

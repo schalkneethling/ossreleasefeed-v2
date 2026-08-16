@@ -653,7 +653,7 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
 
     await expect(page.getByRole("article")).toBeVisible();
-    await expect(page.getByRole("form", { name: "Ask for a topic feed" })).toBeVisible();
+    await expect(page.getByRole("form", { name: "Ask for a feed" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
     await expect(page.getByText("Adaptive topic builder", { exact: true })).toHaveCount(0);
     await expect(page.locator("output[aria-live='polite']")).toHaveCount(2);
@@ -707,5 +707,228 @@ test.describe("adaptive feed Phase 2", () => {
       "aria-pressed",
       "true",
     );
+  });
+});
+
+test.describe("adaptive feed Phase 3", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/experiments", (route) =>
+      route.fulfill({ json: { adaptiveFeedBuilder: true } }),
+    );
+    await page.route("**/api/topics/featured", (route) => route.fulfill({ json: topicsFixture }));
+  });
+
+  const starredDraft = (
+    username: string | null,
+    repoSelection: { kind: "all" } | { kind: "subset"; repos: string[] } | null,
+    ttl = 3600,
+  ) => ({
+    source: "starred",
+    topics: [],
+    username,
+    repoSelection,
+    activityType: "releases",
+    ttl,
+    format: "atom",
+    topicOperator: "or",
+  });
+
+  const repoFixture = [
+    {
+      full_name: "octocat/hello-world",
+      name: "hello-world",
+      description: "A hello-world repository",
+      stargazers_count: 42,
+      owner: { login: "octocat" },
+    },
+    {
+      full_name: "octocat/Spoon-Knife",
+      name: "Spoon-Knife",
+      description: "A spoon and knife",
+      stargazers_count: 10,
+      owner: { login: "octocat" },
+    },
+  ];
+
+  test("creates an all-starred feed from one typed request", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "ready",
+          draft: starredDraft("octocat", { kind: "all" }, 86400),
+          message: "Your starred-repository feed is ready.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/starred-token",
+          showUi: true,
+          ttlSelected: true,
+        },
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page
+      .getByLabel("Your request")
+      .fill("All of octocat's starred repositories, updating every 24 hours.");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(
+      page.getByText("Your starred-repository feed is ready.", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: /worker\.example\/feed/ })).toHaveAttribute(
+      "href",
+      "https://worker.example/feed/starred-token",
+    );
+    await expect(page.getByText("All starred repositories", { exact: true })).toBeVisible();
+    await expect(page.getByText("octocat", { exact: false }).first()).toBeVisible();
+    await expectNoSeriousViolations(page);
+  });
+
+  test("asks for a GitHub username conversationally when it is missing", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "enter-username",
+          draft: starredDraft(null, null),
+          message: "Which GitHub username should I use?",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a feed from my starred repositories");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+    await expect(conversation.getByText(/which github username should i use/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "GitHub username" })).toHaveCount(0);
+  });
+
+  test("reveals the username field and repository picker on request", async ({ page }) => {
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      return route.fulfill({
+        json:
+          requestNumber === 1
+            ? {
+                state: "enter-username",
+                draft: starredDraft(null, null),
+                message: "Here is the interface for your current feed.",
+                issues: [],
+                feedUrl: null,
+                showUi: true,
+                ttlSelected: false,
+              }
+            : {
+                state: "choose-repos",
+                draft: starredDraft("octocat", null),
+                message: "Here is the interface for your current feed.",
+                issues: [],
+                feedUrl: null,
+                showUi: true,
+                ttlSelected: false,
+              },
+      });
+    });
+    await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const usernameField = page.getByRole("textbox", { name: "GitHub username" });
+    await expect(usernameField).toBeVisible();
+    await usernameField.fill("octocat");
+
+    await expect(page.getByRole("list", { name: "Starred repositories" })).toBeVisible();
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    await expect(page.getByRole("checkbox").first()).not.toBeChecked();
+
+    await page.getByRole("button", { name: "Include all starred repositories" }).click();
+    await expect(page.getByText(/including all of @octocat/i)).toBeVisible();
+
+    await page.getByLabel("Update frequency").selectOption("86400");
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+
+    await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
+    await expect(page.getByText("All starred repositories", { exact: true })).toBeVisible();
+  });
+
+  test("builds a subset starred feed with the repository picker", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "choose-repos",
+          draft: starredDraft("octocat", null),
+          message: "Here is the interface for your current feed.",
+          issues: [],
+          feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
+        },
+      }),
+    );
+    await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await page.getByRole("checkbox", { name: /hello-world/i }).check();
+    await page.getByLabel("Update frequency").selectOption("3600");
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+
+    await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
+    await expect(
+      page.locator(".feed-recipe").getByText("octocat/hello-world", { exact: true }),
+    ).toBeVisible();
+  });
+
+  test("continues a starred Ask draft in the guided builder", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "choose-repos",
+          draft: starredDraft("octocat", null),
+          message:
+            "Found @octocat. Do you want all of their starred repositories or a specific selection?",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+      }),
+    );
+    await page.route("**/api/users/validate/octocat", (route) =>
+      route.fulfill({ json: { exists: true, username: "octocat", hasStars: true } }),
+    );
+    await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a feed from octocat's starred repositories");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await page.getByRole("button", { name: /^guide me/i }).click();
+    await page.getByRole("button", { name: "Create feed" }).click();
+
+    await expect(page.getByRole("button", { name: /feed by stars/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const usernameField = page.getByRole("textbox", { name: "GitHub username" });
+    await expect(usernameField).toHaveValue("octocat");
+    await expect(page.getByRole("list", { name: "Starred repositories" })).toBeVisible({
+      timeout: 5000,
+    });
   });
 });

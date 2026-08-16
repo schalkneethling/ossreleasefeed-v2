@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useDebounce } from "../hooks/useDebounce";
 import { trackEvent } from "../lib/analytics";
 import { feedUrl, fetchStarredRepos, validateUsername, type Repo } from "../lib/api";
@@ -7,24 +7,26 @@ import { MAX_STARRED_REPOS } from "../lib/constraints";
 import { useFocusOnMount } from "../hooks/useFocusOnMount";
 import type { FeedDraft, FeedTtl } from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
+import { RepoPicker } from "./RepoPicker";
 import "../styles/feed-config.css";
 import "../styles/starred-step.css";
 
 const DEBOUNCE_MS = 450;
-const PAGE_SIZE = 25;
 
 type UsernameStatus = "idle" | "loading" | "valid" | "not-found" | "no-stars" | "error";
 
-export function StarredStep() {
+type StarredStepProps = {
+  initialUsername?: string;
+};
+
+export function StarredStep({ initialUsername = "" }: StarredStepProps) {
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   const usernameFeedbackId = useId();
 
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(initialUsername);
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState("");
-  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [activityType, setActivityType] = useState<FeedDraft["activityType"]>("releases");
   const [ttl, setTtl] = useState<FeedTtl>(3600);
@@ -37,8 +39,6 @@ export function StarredStep() {
       setUsernameStatus("idle");
       setRepos([]);
       setSelectedRepos(new Set());
-      setFilter("");
-      setDisplayCount(PAGE_SIZE);
       return;
     }
 
@@ -46,8 +46,6 @@ export function StarredStep() {
     setUsernameStatus("loading");
     setRepos([]);
     setSelectedRepos(new Set());
-    setFilter("");
-    setDisplayCount(PAGE_SIZE);
     setGeneratedUrl(null);
 
     validateUsername(debouncedUsername, controller.signal)
@@ -66,7 +64,6 @@ export function StarredStep() {
           .then((fetched) => {
             setRepos(fetched);
             setSelectedRepos(new Set(fetched.slice(0, MAX_STARRED_REPOS).map((r) => r.full_name)));
-            setDisplayCount(PAGE_SIZE);
             setUsernameStatus("valid");
           })
           .catch(() => {
@@ -90,55 +87,6 @@ export function StarredStep() {
   useEffect(() => {
     setGeneratedUrl(null);
   }, [selectedRepos]);
-
-  const filteredRepos = useMemo(
-    () =>
-      filter
-        ? repos.filter((r) => r.full_name.toLowerCase().includes(filter.toLowerCase()))
-        : repos,
-    [repos, filter],
-  );
-
-  const toggleRepo = (fullName: string) => {
-    setSelectedRepos((current) => {
-      const next = new Set(current);
-      if (next.has(fullName)) {
-        next.delete(fullName);
-      } else if (next.size < MAX_STARRED_REPOS) {
-        next.add(fullName);
-      }
-      return next;
-    });
-  };
-
-  // Operate only on filtered repos, leaving selections outside the current filter intact
-  const selectAll = () => {
-    setSelectedRepos((current) => {
-      const next = new Set(current);
-      for (const repo of filteredRepos) {
-        if (next.size >= MAX_STARRED_REPOS) {
-          break;
-        }
-
-        next.add(repo.full_name);
-      }
-      return next;
-    });
-  };
-
-  const deselectAll = () => {
-    setSelectedRepos((current) => {
-      const next = new Set(current);
-      for (const repo of filteredRepos) {
-        next.delete(repo.full_name);
-      }
-      return next;
-    });
-  };
-
-  const visibleRepos = filter ? filteredRepos : filteredRepos.slice(0, displayCount);
-  const hasMore = !filter && repos.length > displayCount;
-  const atCap = selectedRepos.size >= MAX_STARRED_REPOS;
 
   const usernameFeedback = () => {
     if (usernameStatus === "loading") {
@@ -229,75 +177,12 @@ export function StarredStep() {
       </div>
 
       {hasRepos ? (
-        <div className="repo-list">
-          <div className="repo-list__controls">
-            <input
-              aria-label="Filter repositories"
-              className="repo-list__filter"
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name…"
-              type="search"
-              value={filter}
-            />
-            <button className="btn-secondary repo-list__bulk-btn" onClick={selectAll} type="button">
-              Select all
-            </button>
-            <button
-              className="btn-secondary repo-list__bulk-btn"
-              onClick={deselectAll}
-              type="button"
-            >
-              Deselect all
-            </button>
-          </div>
-
-          {atCap ? (
-            <p aria-live="polite" className="repo-list__cap-note">
-              Selection limit reached — up to {MAX_STARRED_REPOS} repositories. Deselect one to pick
-              another.
-            </p>
-          ) : null}
-
-          {visibleRepos.length > 0 ? (
-            <ul aria-label="Starred repositories" className="repo-list__items">
-              {visibleRepos.map((repo) => {
-                const checked = selectedRepos.has(repo.full_name);
-                const disabled = !checked && atCap;
-                return (
-                  <li className="repo-item" key={repo.full_name}>
-                    <label className="repo-item__label">
-                      <input
-                        checked={checked}
-                        className="repo-item__checkbox"
-                        disabled={disabled}
-                        onChange={() => toggleRepo(repo.full_name)}
-                        type="checkbox"
-                      />
-                      <span className="repo-item__info">
-                        <span className="repo-item__name">{repo.full_name}</span>
-                        {repo.description ? (
-                          <span className="repo-item__description">{repo.description}</span>
-                        ) : null}
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="repo-list__empty">No repositories match &ldquo;{filter}&rdquo;.</p>
-          )}
-
-          {hasMore ? (
-            <button
-              className="btn-secondary repo-list__load-more"
-              onClick={() => setDisplayCount((c) => c + PAGE_SIZE)}
-              type="button"
-            >
-              Load more ({repos.length - displayCount} remaining)
-            </button>
-          ) : null}
-        </div>
+        <RepoPicker
+          key={debouncedUsername}
+          onSelectionChange={setSelectedRepos}
+          repos={repos}
+          selectedRepos={selectedRepos}
+        />
       ) : null}
 
       {hasRepos ? (

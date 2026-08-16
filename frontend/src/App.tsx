@@ -114,6 +114,28 @@ export function App() {
     dispatch({ type: "set-feed-url", feedUrl: feedUrl(token) });
   };
 
+  const generateFeedUrl = () => {
+    const { draft } = workspace;
+
+    if (draft.source === "topics" && draft.topics.length > 0) {
+      generateTopicUrl();
+      return;
+    }
+
+    if (draft.source === "starred" && draft.username !== null && draft.repoSelection !== null) {
+      const token = encodeFeedConfig({
+        source: "starred",
+        username: draft.username,
+        repos: draft.repoSelection.kind === "subset" ? draft.repoSelection.repos : null,
+        activityType: draft.activityType,
+        ttl: draft.ttl,
+        format: "atom",
+      });
+
+      dispatch({ type: "set-feed-url", feedUrl: feedUrl(token) });
+    }
+  };
+
   const startOver = () => {
     clearAdaptiveWorkspace();
     setFallbackMessage(null);
@@ -175,7 +197,7 @@ export function App() {
               >
                 <span className="adaptive-entry__mode-title">Ask for a feed</span>
                 <span className="adaptive-entry__mode-detail">
-                  Describe a topic feed in one request
+                  Describe the feed you want in one request
                 </span>
               </button>
             </div>
@@ -200,12 +222,16 @@ export function App() {
               dispatch({ type: "assistant-result", userMessage, response })
             }
             onComposerChange={(composer) => dispatch({ type: "set-composer", composer })}
-            onGenerate={generateTopicUrl}
+            onGenerate={generateFeedUrl}
             onGuidedFallback={fallbackToGuided}
+            onRepoSelectionChange={(repoSelection) =>
+              dispatch({ type: "set-repo-selection", repoSelection })
+            }
             onSourceChange={(source) => dispatch({ type: "set-source", source })}
             onStartOver={startOver}
             onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
             onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
+            onUsernameChange={(username) => dispatch({ type: "set-username", username })}
             state={workspace.adaptiveState}
             transcript={workspace.transcript}
             ttlSelected={workspace.ttlSelected}
