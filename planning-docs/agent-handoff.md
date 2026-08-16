@@ -1,5 +1,11 @@
 # OSSReleaseFeed — Agent Handoff
 
+> **Historical document:** This predates the implemented product and is kept as
+> an early planning record. For the current adaptive-feed status, invariants,
+> and next phases, use
+> [docs/ADAPTIVE-FEED-ROADMAP.md](../docs/ADAPTIVE-FEED-ROADMAP.md). Current
+> local setup commands are in [README.md](../README.md).
+
 **Date:** 2026-03-01
 **Author:** Schalk Neethling
 **Status:** Ready for implementation
