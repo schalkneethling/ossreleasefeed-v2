@@ -604,16 +604,15 @@ describe("POST /api/assistant/turn", () => {
     expect(input.messages).toHaveLength(4);
     expect(input.messages[1]).toEqual({ role: "user", content: "I want a CSS feed" });
     expect(input.messages[2]).toEqual({
-      role: "assistant",
+      role: "user",
       content:
-        "I selected the topic css. Next, choose how often the feed should update. I can show you the settings UI or list the available options.",
+        "[Previous assistant response] I selected the topic css. Next, choose how often the feed should update. I can show you the settings UI or list the available options.",
     });
-    const current = JSON.parse(input.messages[3].content) as Record<string, unknown>;
-    expect(current).toMatchObject({
+    expect(JSON.parse(input.messages[3].content)).toEqual({
       message: "list available options",
       state: "edit-settings",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
     });
-    expect("history" in current).toBe(false);
   });
 
   it("rejects an invalid model decision without validating topics", async () => {
