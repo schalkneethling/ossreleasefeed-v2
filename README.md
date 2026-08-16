@@ -24,6 +24,64 @@ if you do (there's also a link in the app's footer).
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams of the request
 flow, the GitHub subrequest budget, and the feed builder UI states.
 
+The adaptive feed experiment's current status and remaining phased work are in
+[docs/ADAPTIVE-FEED-ROADMAP.md](docs/ADAPTIVE-FEED-ROADMAP.md).
+
+## Local development
+
+### Prerequisites
+
+- Node.js 22
+- Corepack with pnpm 11.9.0
+- The 1Password desktop app and CLI, with desktop-app integration enabled
+- Access to the project's Cloudflare account for remote Workers AI and
+  Flagship bindings
+
+Install the repository dependencies and Playwright's Chromium browser:
+
+```sh
+corepack enable
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+```
+
+The Worker resolves `GITHUB_PAT` through Varlock and 1Password. The expected
+item is `ossreleasefeed-github-pat` in the `dev` vault, with the token stored in
+its `credential` field. A fine-grained GitHub token with public-repository read
+access is sufficient. Verify the secret without printing its value:
+
+```sh
+pnpm exec varlock load
+```
+
+Start the Worker and frontend in separate terminals:
+
+```sh
+pnpm run dev:worker
+```
+
+```sh
+pnpm run dev:frontend
+```
+
+Vite proxies `/api` and `/feed` requests to the Worker on port 8787. The
+adaptive homepage is available only when the Cloudflare Flagship flag
+`adaptive-feed-builder` evaluates to `true` for the `local` surface. Guided
+mode remains available when the flag is disabled.
+
+Run the standard local checks with:
+
+```sh
+pnpm run lint
+pnpm run typecheck
+pnpm run test
+pnpm run build
+```
+
+Account setup, Cloudflare resources, deployment secrets, and optional service
+configuration are tracked in [TODO.md](TODO.md). Secret values are never
+committed.
+
 ## Contributing
 
 Beta is out, but there's no formal contribution process yet — code PRs
