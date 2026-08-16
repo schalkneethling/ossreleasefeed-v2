@@ -112,4 +112,9 @@ describe("assistant contracts", () => {
     expect(isLegalTransition("edit-topics", "ready")).toBe(true);
     expect(isLegalTransition("edit-topics", "enter-username")).toBe(false);
   });
+
+  it("lets a starred conversation switch back to topic editing", () => {
+    expect(isLegalTransition("enter-username", "edit-topics")).toBe(true);
+    expect(isLegalTransition("choose-repos", "edit-topics")).toBe(true);
+  });
 });

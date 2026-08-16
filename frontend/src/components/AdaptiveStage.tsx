@@ -1,5 +1,6 @@
 import { createElement, useEffect, useId, useState, type ComponentType } from "react";
 import { fetchStarredRepos, type Repo } from "../lib/api";
+import { useDebounce } from "../hooks/useDebounce";
 import type { AdaptiveState, FeedDraft, FeedTtl } from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { FeedRecipe } from "./FeedRecipe";
@@ -88,14 +89,17 @@ const UsernameChoices = ({ draft, onUsernameChange }: RegistryProps) => {
   );
 };
 
+const USERNAME_DEBOUNCE_MS = 450;
+
 const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) => {
   const titleId = useId();
   const [repos, setRepos] = useState<Repo[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const username = draft.username;
+  const debouncedUsername = useDebounce(username, USERNAME_DEBOUNCE_MS);
 
   useEffect(() => {
-    if (!active || username === null) {
+    if (!active || debouncedUsername === null) {
       setRepos([]);
       setStatus("idle");
       return;
@@ -104,7 +108,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
     const controller = new AbortController();
     setStatus("loading");
 
-    fetchStarredRepos(username, controller.signal)
+    fetchStarredRepos(debouncedUsername, controller.signal)
       .then((fetched) => {
         setRepos(fetched);
         setStatus("loaded");
@@ -116,7 +120,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       });
 
     return () => controller.abort();
-  }, [active, username]);
+  }, [active, debouncedUsername]);
 
   if (draft.repoSelection?.kind === "all") {
     return (
@@ -151,9 +155,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       ) : (
         <RepoPicker
           key={username ?? "none"}
-          onSelectionChange={(next) =>
-            onRepoSelectionChange(next.size > 0 ? { kind: "subset", repos: [...next] } : null)
-          }
+          onSelectionChange={(next) => onRepoSelectionChange({ kind: "subset", repos: [...next] })}
           repos={repos}
           selectedRepos={selectedRepos}
         />

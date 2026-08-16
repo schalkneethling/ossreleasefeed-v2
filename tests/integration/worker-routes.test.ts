@@ -590,7 +590,7 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "edit-topics",
+        proposedState: "enter-username",
         draftPatch: {
           source: "topics",
           topics: ["css"],
@@ -600,7 +600,7 @@ describe("POST /api/assistant/turn", () => {
       },
     });
     const response = await postAssistant(
-      { ...assistantRequest("Create a CSS feed"), state: "enter-username" as const },
+      { ...assistantRequest("Create a CSS feed"), state: "edit-topics" as const },
       bindings,
     );
 
@@ -1111,15 +1111,25 @@ describe("POST /api/assistant/turn", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  const octocatUserHandler = (status = 200) =>
+  const octocatUserHandler = ({ found = true }: { found?: boolean } = {}) =>
     http.get("https://api.github.com/users/octocat", () =>
-      status === 404
-        ? HttpResponse.json({ message: "Not Found" }, { status: 404 })
-        : HttpResponse.json({ login: "octocat" }),
+      found
+        ? HttpResponse.json({ login: "octocat" })
+        : HttpResponse.json({ message: "Not Found" }, { status: 404 }),
     );
 
   const octocatStarsHandler = (repos: unknown[] = [repoFixture]) =>
     http.get("https://api.github.com/users/octocat/starred", () => HttpResponse.json(repos));
+
+  const expectValidFeedToken = (token: string) => {
+    const decoded = decodeFeedConfig(token);
+
+    if (!Either.isRight(decoded)) {
+      throw new Error("Expected a valid starred feed token");
+    }
+
+    return decoded.right;
+  };
 
   it("asks for a GitHub username when a starred request has none", async () => {
     const githubCalls = recordGitHubCalls();
@@ -1176,7 +1186,7 @@ describe("POST /api/assistant/turn", () => {
   });
 
   it("reports an unknown GitHub username", async () => {
-    server.use(octocatUserHandler(404));
+    server.use(octocatUserHandler({ found: false }));
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
@@ -1252,18 +1262,13 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: true,
     });
     const token = new URL(payload.feedUrl).pathname.replace("/feed/", "");
-    const decoded = decodeFeedConfig(token);
 
-    if (Either.isRight(decoded)) {
-      expect(decoded.right).toMatchObject({
-        source: "starred",
-        username: "octocat",
-        repos: null,
-        ttl: 86400,
-      });
-    } else {
-      throw new Error("Expected a valid starred feed token");
-    }
+    expect(expectValidFeedToken(token)).toMatchObject({
+      source: "starred",
+      username: "octocat",
+      repos: null,
+      ttl: 86400,
+    });
   });
 
   it("reports repositories that are not in the user's starred list", async () => {
@@ -1324,18 +1329,13 @@ describe("POST /api/assistant/turn", () => {
     expect(response.status).toBe(200);
     expect(payload.state).toBe("ready");
     const token = new URL(payload.feedUrl).pathname.replace("/feed/", "");
-    const decoded = decodeFeedConfig(token);
 
-    if (Either.isRight(decoded)) {
-      expect(decoded.right).toMatchObject({
-        source: "starred",
-        username: "octocat",
-        repos: ["example/repo"],
-        ttl: 86400,
-      });
-    } else {
-      throw new Error("Expected a valid starred feed token");
-    }
+    expect(expectValidFeedToken(token)).toMatchObject({
+      source: "starred",
+      username: "octocat",
+      repos: ["example/repo"],
+      ttl: 86400,
+    });
   });
 
   it("lists update frequencies for a starred draft in the repository state", async () => {
@@ -1373,7 +1373,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("keeps an all-starred feed at settings until a frequency is selected", async () => {
+  it("keeps an all-starred feed in choose-repos until a frequency is selected", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
     const { bindings } = makeAssistantEnv({
       aiResponse: {

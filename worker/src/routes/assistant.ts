@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { Hono, type Context } from "hono";
 import {
   ADAPTIVE_STATES,
@@ -21,6 +21,10 @@ export const assistantRoutes = new Hono<AppEnv>();
 
 const MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 const MAX_BODY_BYTES = 8_192;
+// GitHub lookups in the assistant request path are bounded so a slow or hung
+// upstream response cannot hold the turn open; a deadline reaches the same
+// 503 response as a lookup failure.
+const GITHUB_LOOKUP_TIMEOUT = Duration.seconds(10);
 const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
 const USERNAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/u;
 const TOPIC_LIMIT_ISSUE = "Use between one and five GitHub topic slugs.";
@@ -235,19 +239,19 @@ const responseFor = (
   ttlSelected,
 });
 
-const formatTopicList = (topics: readonly string[]): string => {
-  if (topics.length === 1) {
-    return topics[0];
+const formatItemList = (items: readonly string[]): string => {
+  if (items.length === 1) {
+    return items[0];
   }
 
-  return `${topics.slice(0, -1).join(", ")}, and ${topics.at(-1)}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 };
 
-const topicSelectionMessage = (topics: readonly string[]): string => {
+const selectionMessage = (items: readonly string[], singular: string, plural: string): string => {
   const selection =
-    topics.length === 1
-      ? `I selected the topic ${topics[0]}.`
-      : `I selected ${topics.length} topics: ${formatTopicList(topics)}.`;
+    items.length === 1
+      ? `I selected the ${singular} ${items[0]}.`
+      : `I selected ${items.length} ${plural}: ${formatItemList(items)}.`;
 
   return `${selection} Next, choose how often the feed should update. I can show you the settings UI or list the available options.`;
 };
@@ -323,10 +327,14 @@ const createTopicFeedUrl = (draft: FeedDraft, requestUrl: string): string => {
   return new URL(`/feed/${token}`, requestUrl).toString();
 };
 
-const createStarredFeedUrl = (draft: FeedDraft, requestUrl: string): string => {
+const createStarredFeedUrl = (draft: FeedDraft, requestUrl: string): string | null => {
+  if (draft.username === null) {
+    return null;
+  }
+
   const token = encodeFeedConfig({
     source: "starred",
-    username: draft.username as string,
+    username: draft.username,
     repos: draft.repoSelection?.kind === "subset" ? draft.repoSelection.repos : null,
     activityType: draft.activityType,
     ttl: draft.ttl,
@@ -336,27 +344,10 @@ const createStarredFeedUrl = (draft: FeedDraft, requestUrl: string): string => {
   return new URL(`/feed/${token}`, requestUrl).toString();
 };
 
-const createFeedUrl = (draft: FeedDraft, requestUrl: string): string =>
+const createFeedUrl = (draft: FeedDraft, requestUrl: string): string | null =>
   draft.source === "topics"
     ? createTopicFeedUrl(draft, requestUrl)
     : createStarredFeedUrl(draft, requestUrl);
-
-const formatRepoList = (repos: readonly string[]): string => {
-  if (repos.length === 1) {
-    return repos[0];
-  }
-
-  return `${repos.slice(0, -1).join(", ")}, and ${repos.at(-1)}`;
-};
-
-const repoSelectionMessage = (repos: readonly string[]): string => {
-  const selection =
-    repos.length === 1
-      ? `I selected the repository ${repos[0]}.`
-      : `I selected ${repos.length} repositories: ${formatRepoList(repos)}.`;
-
-  return `${selection} Next, choose how often the feed should update. I can show you the settings UI or list the available options.`;
-};
 
 const validateStarredRepos = async (
   username: string,
@@ -366,6 +357,7 @@ const validateStarredRepos = async (
   const fetched = await runEffect(
     Effect.flatMap(GitHubClient, (client) => client.getStarredRepos(username)).pipe(
       Effect.provide(githubLayer),
+      Effect.timeout(GITHUB_LOOKUP_TIMEOUT),
     ),
   );
   const available = new Set(fetched.map((repo) => repo.full_name));
@@ -416,6 +408,7 @@ const handleStarredTurn = async (
     validation = await runEffect(
       Effect.flatMap(GitHubClient, (client) => client.validateUsername(username)).pipe(
         Effect.provide(ctx.var.githubLayer),
+        Effect.timeout(GITHUB_LOOKUP_TIMEOUT),
       ),
     );
   } catch {
@@ -524,9 +517,14 @@ const handleStarredTurn = async (
 
   if (!candidateTtlSelected) {
     return ctx.json(
-      responseFor("choose-repos", corrected, repoSelectionMessage(selection.valid), {
-        ttlSelected: candidateTtlSelected,
-      }),
+      responseFor(
+        "choose-repos",
+        corrected,
+        selectionMessage(selection.valid, "repository", "repositories"),
+        {
+          ttlSelected: candidateTtlSelected,
+        },
+      ),
     );
   }
 
@@ -763,9 +761,14 @@ assistantRoutes.post("/turn", async (ctx) => {
     needsExplicitTtl
   ) {
     return ctx.json(
-      responseFor("edit-settings", candidate, topicSelectionMessage(candidate.topics), {
-        ttlSelected: candidateTtlSelected,
-      }),
+      responseFor(
+        "edit-settings",
+        candidate,
+        selectionMessage(candidate.topics, "topic", "topics"),
+        {
+          ttlSelected: candidateTtlSelected,
+        },
+      ),
     );
   }
 

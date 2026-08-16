@@ -298,24 +298,45 @@ describe("adaptive workspace", () => {
 
   it("rejects a starred ready state without a username or selection", () => {
     const now = Date.UTC(2026, 6, 19);
-    const serialized = JSON.stringify({
+    const base = {
       ...DEFAULT_ADAPTIVE_WORKSPACE,
       adaptiveState: "ready",
-      draft: {
-        ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
-        source: "starred",
-        username: null,
-        repoSelection: { kind: "all" },
-      },
       feedUrl: "https://example.com/feed/starred-token",
       showUi: true,
       ttlSelected: true,
       selectedMode: "ask",
       version: ADAPTIVE_SESSION_VERSION,
       savedAt: now,
-    });
+    };
 
-    expect(parsePersistedWorkspace(serialized, now)).toBeNull();
+    expect(
+      parsePersistedWorkspace(
+        JSON.stringify({
+          ...base,
+          draft: {
+            ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+            source: "starred",
+            username: null,
+            repoSelection: { kind: "all" },
+          },
+        }),
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedWorkspace(
+        JSON.stringify({
+          ...base,
+          draft: {
+            ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+            source: "starred",
+            username: "octocat",
+            repoSelection: null,
+          },
+        }),
+        now,
+      ),
+    ).toBeNull();
   });
 
   it("caps composer and issue data before writing a persisted session", () => {

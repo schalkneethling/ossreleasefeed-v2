@@ -21,13 +21,15 @@ export function RepoPicker({
   const [filter, setFilter] = useState("");
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
-  const filteredRepos = useMemo(
-    () =>
-      filter
-        ? repos.filter((repo) => repo.full_name.toLowerCase().includes(filter.toLowerCase()))
-        : repos,
-    [repos, filter],
-  );
+  const filteredRepos = useMemo(() => {
+    if (!filter) {
+      return repos;
+    }
+
+    const needle = filter.toLowerCase();
+
+    return repos.filter((repo) => repo.full_name.toLowerCase().includes(needle));
+  }, [repos, filter]);
 
   const toggleRepo = (fullName: string) => {
     const next = new Set(selectedRepos);
@@ -43,26 +45,37 @@ export function RepoPicker({
 
   const selectAll = () => {
     const next = new Set(selectedRepos);
+    let changed = false;
 
     for (const repo of filteredRepos) {
       if (next.size >= maxRepos) {
         break;
       }
 
-      next.add(repo.full_name);
+      if (!next.has(repo.full_name)) {
+        next.add(repo.full_name);
+        changed = true;
+      }
     }
 
-    onSelectionChange(next);
+    if (changed) {
+      onSelectionChange(next);
+    }
   };
 
   const deselectAll = () => {
     const next = new Set(selectedRepos);
+    let changed = false;
 
     for (const repo of filteredRepos) {
-      next.delete(repo.full_name);
+      if (next.delete(repo.full_name)) {
+        changed = true;
+      }
     }
 
-    onSelectionChange(next);
+    if (changed) {
+      onSelectionChange(next);
+    }
   };
 
   const visibleRepos = filter ? filteredRepos : filteredRepos.slice(0, displayCount);

@@ -888,7 +888,9 @@ test.describe("adaptive feed Phase 3", () => {
     await page.getByRole("button", { name: /generate feed url/i }).click();
 
     await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
-    await expect(page.getByText("octocat/hello-world", { exact: true })).toBeVisible();
+    await expect(
+      page.locator(".feed-recipe").getByText("octocat/hello-world", { exact: true }),
+    ).toBeVisible();
   });
 
   test("continues a starred Ask draft in the guided builder", async ({ page }) => {
