@@ -139,8 +139,11 @@ contents or conversation data.
 
 ### Vertical slice
 
-- Define one versioned, allowlisted schema catalog for every Umami event. The
-  initial catalog contains only:
+- Define one versioned, allowlisted schema catalog for the adaptive-feed Umami
+  event namespace. Existing Builder events remain supported by the current
+  analytics path until they are separately migrated; this catalog and its
+  strict validation apply only to adaptive-feed events. The initial adaptive
+  catalog contains only:
   - `adaptive_mode_selected` with `mode: guided | ask`;
   - `adaptive_input_used` with `method: text | speech | control`;
   - `adaptive_state_transition` with `from` and `to` values from the fixed
@@ -150,11 +153,11 @@ contents or conversation data.
   - `adaptive_completion` with bounded `turnsToUrl` and `timeToUrlMs` numbers;
   - `adaptive_url_generated` and `adaptive_url_copied` with `mode` and the
     categorical source `topics | starred` only.
-- Reject unknown event names, unknown properties, invalid enum values,
-  unbounded numbers, nested objects, arrays, and free-form error strings before
-  calling Umami. Error metadata is limited to fixed error/fallback categories;
-  stack traces, exception messages, response bodies, and model framing are not
-  analytics properties.
+- Reject unknown adaptive-feed event names, unknown properties, invalid enum
+  values, unbounded numbers, nested objects, arrays, and free-form error
+  strings before calling Umami. Error metadata is limited to fixed
+  error/fallback categories; stack traces, exception messages, response bodies,
+  and model framing are not analytics properties.
 - Validate the analytics envelope as well as event properties. Page locations
   must use a trusted application origin and an allowlisted pathname with query
   strings and fragments removed. Referrers must be empty or a same-origin
@@ -163,9 +166,11 @@ contents or conversation data.
   to a fixed transport allowlist such as `Content-Type`; never copy
   `Authorization`, `Cookie`, `Referer`, `X-Experiment-Key`, or arbitrary
   request headers into an event or analytics request.
-- Schemas must structurally exclude prompts, transcripts, topics, usernames,
-  repository names, feed or page URLs, experiment identifiers, request IDs,
-  model output, and other sensitive-adjacent free-form data. Test both accepted
+- Event-property schemas must structurally exclude prompts, transcripts,
+  topics, usernames, repository names, feed URLs, page URLs, experiment
+  identifiers, request IDs, model output, and other sensitive-adjacent
+  free-form data. The separately validated analytics envelope may retain only
+  the sanitized page-location field described above. Test both accepted
   payloads and rejection/redaction cases at the analytics boundary.
 - Add a fixed remote Workers AI evaluation set with at least 30 prompt variants
   spanning complete, incomplete, corrective, invalid, malicious, topic, and
