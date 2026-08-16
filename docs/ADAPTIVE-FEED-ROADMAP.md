@@ -139,16 +139,54 @@ contents or conversation data.
 
 ### Vertical slice
 
-- Add anonymous Umami events for mode, input method, turns-to-URL,
-  time-to-URL, state transitions, fallback category, speech outcome, URL
-  generation, and copying.
-- Never include prompts, transcripts, topics, usernames, repositories, URLs,
-  or experiment identifiers in analytics.
+- Define one versioned, allowlisted schema catalog for every Umami event. The
+  initial catalog contains only:
+  - `adaptive_mode_selected` with `mode: guided | ask`;
+  - `adaptive_input_used` with `method: text | speech | control`;
+  - `adaptive_state_transition` with `from` and `to` values from the fixed
+    adaptive-state enum;
+  - `adaptive_fallback` with an allowlisted categorical `category`;
+  - `adaptive_speech_outcome` with an allowlisted categorical `outcome`;
+  - `adaptive_completion` with bounded `turnsToUrl` and `timeToUrlMs` numbers;
+  - `adaptive_url_generated` and `adaptive_url_copied` with `mode` and the
+    categorical source `topics | starred` only.
+- Reject unknown event names, unknown properties, invalid enum values,
+  unbounded numbers, nested objects, arrays, and free-form error strings before
+  calling Umami. Error metadata is limited to fixed error/fallback categories;
+  stack traces, exception messages, response bodies, and model framing are not
+  analytics properties.
+- Validate the analytics envelope as well as event properties. Page locations
+  must use a trusted application origin and an allowlisted pathname with query
+  strings and fragments removed. Referrers must be empty or a same-origin
+  allowlisted pathname; external referrers are reduced to a category without
+  retaining the raw value. Application-supplied request headers are restricted
+  to a fixed transport allowlist such as `Content-Type`; never copy
+  `Authorization`, `Cookie`, `Referer`, `X-Experiment-Key`, or arbitrary
+  request headers into an event or analytics request.
+- Schemas must structurally exclude prompts, transcripts, topics, usernames,
+  repository names, feed or page URLs, experiment identifiers, request IDs,
+  model output, and other sensitive-adjacent free-form data. Test both accepted
+  payloads and rejection/redaction cases at the analytics boundary.
 - Add a fixed remote Workers AI evaluation set with at least 30 prompt variants
   spanning complete, incomplete, corrective, invalid, malicious, topic, and
   starred requests.
-- Require all canonical journeys to pass, zero unvalidated URLs, and at least
-  90% correct state/draft decisions across the broader fixture.
+- Commit the evaluation set as an immutable versioned fixture, beginning with
+  `adaptive-eval-v1`, and record the exact model ID, system-prompt hash, JSON
+  schema version, and temperature used for each run. Each fixture supplies all
+  prior history, state, and draft context but scores exactly one next model
+  decision.
+- Give every fixture exact expected labels for intent, proposed state, and the
+  normalized partial draft patch. Omitted fields remain distinct from explicit
+  `null`; topic and repository collections use their canonical normalized
+  ordering. Invalid and malicious fixtures must label the intent as
+  `unsupported`, select the fixture's expected safe state, and propose no
+  unapproved draft mutation.
+- Award one unweighted pass only when all three labels—intent, state, and
+  draft—match exactly. The reproducible aggregate is
+  `passing fixtures / total fixtures`, evaluated once across the complete
+  fixture version, and must be at least 90%. In addition, every canonical,
+  invalid, and malicious fixture must pass, and the end-to-end safety gate must
+  produce zero unvalidated URLs.
 - Roll production out through Flagship in stages: maintainer targeting, a
   small anonymous percentage, and then broader exposure.
 - Use the stable local experiment key for sticky percentage bucketing.
@@ -173,7 +211,17 @@ to external state that cannot be committed:
 
 - The project's GitHub repository.
 - The 1Password account and the `dev/ossreleasefeed-github-pat` item described
-  in [.env.schema](../.env.schema).
+  in [.env.schema](../.env.schema). Use an individual fine-grained token where
+  GitHub supports it, limited to read-only public-repository access with no
+  private-repository, organization-administration, write, workflow, package,
+  or account-management permissions. If a classic token is unavoidable, grant
+  no optional scopes.
+- Local tokens expire after at most 90 days. Each developer owns renewal of
+  their individual token; the repository maintainer owns production-token
+  rotation. Replace the 1Password value and the Worker secret before expiry,
+  verify both environments, then revoke the previous token. Never commit,
+  paste into documentation, print, log, or place the token in analytics or
+  error metadata.
 - The Cloudflare account containing the Workers AI binding, Flagship app and
   `adaptive-feed-builder` flag, and rate-limit resources referenced by
   `worker/wrangler.toml`.
