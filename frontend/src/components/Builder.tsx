@@ -62,7 +62,9 @@ export function Builder({
           onTtlChange={onTtlChange}
         />
       ) : null}
-      {draft.source === "starred" ? <StarredStep /> : null}
+      {draft.source === "starred" ? (
+        <StarredStep initialUsername={draft.username ?? undefined} />
+      ) : null}
     </>
   );
 }

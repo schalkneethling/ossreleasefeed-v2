@@ -1,7 +1,9 @@
-import { createElement, type ComponentType } from "react";
+import { createElement, useEffect, useId, useState, type ComponentType } from "react";
+import { fetchStarredRepos, type Repo } from "../lib/api";
 import type { AdaptiveState, FeedDraft, FeedTtl } from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { FeedRecipe } from "./FeedRecipe";
+import { RepoPicker } from "./RepoPicker";
 import { TopicEditor } from "./TopicEditor";
 
 type RegistryProps = {
@@ -13,20 +15,24 @@ type RegistryProps = {
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onGenerate: () => void;
   onGuidedFallback: (disabled: boolean) => void;
+  onRepoSelectionChange: (repoSelection: FeedDraft["repoSelection"]) => void;
   onSourceChange: (source: FeedDraft["source"]) => void;
   onTopicsChange: (topics: string[]) => void;
   onTtlChange: (ttl: FeedTtl) => void;
+  onUsernameChange: (username: string) => void;
 };
 
 type RegisteredComponent =
   | "feed-types"
+  | "username-choices"
+  | "repo-choices"
   | "recipe"
   | "topic-choices"
   | "settings"
   | "validation-issues"
   | "generated-url";
 
-const FeedTypeChoices = ({ onGuidedFallback, onSourceChange }: RegistryProps) => (
+const FeedTypeChoices = ({ onSourceChange }: RegistryProps) => (
   <section aria-labelledby="ask-source-title" className="adaptive-stage">
     <h3 className="adaptive-stage__title" id="ask-source-title">
       Choose a feed source
@@ -42,18 +48,127 @@ const FeedTypeChoices = ({ onGuidedFallback, onSourceChange }: RegistryProps) =>
       </button>
       <button
         className="adaptive-stage__source"
-        onClick={() => {
-          onSourceChange("starred");
-          onGuidedFallback(false);
-        }}
+        onClick={() => onSourceChange("starred")}
         type="button"
       >
         <span className="adaptive-stage__source-title">Starred repositories</span>
-        <span className="adaptive-stage__source-detail">Continue in Guide me for this phase</span>
+        <span className="adaptive-stage__source-detail">
+          Follow releases from a user&rsquo;s stars
+        </span>
       </button>
     </div>
   </section>
 );
+
+const UsernameChoices = ({ draft, onUsernameChange }: RegistryProps) => {
+  const inputId = useId();
+
+  return (
+    <section aria-labelledby="ask-username-title" className="adaptive-stage">
+      <h3 className="adaptive-stage__title" id="ask-username-title">
+        GitHub username
+      </h3>
+      <div className="username-input">
+        <label className="username-input__label" htmlFor={inputId}>
+          GitHub username
+        </label>
+        <input
+          autoCapitalize="none"
+          autoCorrect="off"
+          className="username-input__field"
+          id={inputId}
+          onChange={(event) => onUsernameChange(event.target.value)}
+          placeholder="e.g. octocat"
+          spellCheck={false}
+          type="text"
+          value={draft.username ?? ""}
+        />
+      </div>
+    </section>
+  );
+};
+
+const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) => {
+  const titleId = useId();
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const username = draft.username;
+
+  useEffect(() => {
+    if (!active || username === null) {
+      setRepos([]);
+      setStatus("idle");
+      return;
+    }
+
+    const controller = new AbortController();
+    setStatus("loading");
+
+    fetchStarredRepos(username, controller.signal)
+      .then((fetched) => {
+        setRepos(fetched);
+        setStatus("loaded");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setStatus("error");
+        }
+      });
+
+    return () => controller.abort();
+  }, [active, username]);
+
+  if (draft.repoSelection?.kind === "all") {
+    return (
+      <section aria-labelledby={titleId} className="adaptive-stage">
+        <h3 className="adaptive-stage__title" id={titleId}>
+          Starred repositories
+        </h3>
+        <p className="adaptive-stage__note">
+          Including all of @{username}&rsquo;s starred repositories.
+        </p>
+        <button className="btn-secondary" onClick={() => onRepoSelectionChange(null)} type="button">
+          Choose specific repositories
+        </button>
+      </section>
+    );
+  }
+
+  const selectedRepos =
+    draft.repoSelection?.kind === "subset" ? new Set(draft.repoSelection.repos) : new Set<string>();
+
+  return (
+    <section aria-labelledby={titleId} className="adaptive-stage">
+      <h3 className="adaptive-stage__title" id={titleId}>
+        Starred repositories
+      </h3>
+      {status === "loading" ? (
+        <p className="adaptive-stage__note">Loading starred repositories&hellip;</p>
+      ) : status === "error" ? (
+        <p className="adaptive-stage__note">
+          Could not load starred repositories. Check your connection and try again.
+        </p>
+      ) : (
+        <RepoPicker
+          key={username ?? "none"}
+          onSelectionChange={(next) =>
+            onRepoSelectionChange(next.size > 0 ? { kind: "subset", repos: [...next] } : null)
+          }
+          repos={repos}
+          selectedRepos={selectedRepos}
+        />
+      )}
+      <p className="adaptive-stage__note">Prefer every starred repository instead?</p>
+      <button
+        className="btn-secondary"
+        onClick={() => onRepoSelectionChange({ kind: "all" })}
+        type="button"
+      >
+        Include all starred repositories
+      </button>
+    </section>
+  );
+};
 
 const Recipe = ({ draft }: RegistryProps) => <FeedRecipe draft={draft} />;
 
@@ -72,16 +187,24 @@ const Settings = ({
   onGenerate,
   onTtlChange,
   ttlSelected,
-}: RegistryProps) => (
-  <FeedConfigPanel
-    activityType={draft.activityType}
-    onActivityChange={onActivityChange}
-    onGenerate={onGenerate}
-    onTtlChange={onTtlChange}
-    ttl={draft.ttl}
-    ttlSelected={ttlSelected}
-  />
-);
+}: RegistryProps) => {
+  const selectionMissing =
+    draft.source === "starred" &&
+    (draft.repoSelection === null ||
+      (draft.repoSelection.kind === "subset" && draft.repoSelection.repos.length === 0));
+
+  return (
+    <FeedConfigPanel
+      activityType={draft.activityType}
+      disabled={selectionMissing}
+      onActivityChange={onActivityChange}
+      onGenerate={onGenerate}
+      onTtlChange={onTtlChange}
+      ttl={draft.ttl}
+      ttlSelected={ttlSelected}
+    />
+  );
+};
 
 const ValidationIssues = ({ issues }: RegistryProps) => (
   <section
@@ -104,6 +227,8 @@ const GeneratedUrl = ({ feedUrl }: RegistryProps) =>
 
 const COMPONENT_REGISTRY: Record<RegisteredComponent, ComponentType<RegistryProps>> = {
   "feed-types": FeedTypeChoices,
+  "username-choices": UsernameChoices,
+  "repo-choices": RepoChoices,
   recipe: Recipe,
   "topic-choices": TopicChoices,
   settings: Settings,
@@ -113,14 +238,29 @@ const COMPONENT_REGISTRY: Record<RegisteredComponent, ComponentType<RegistryProp
 
 const componentsForState = (
   state: AdaptiveState,
+  draft: FeedDraft,
   issues: readonly string[],
 ): RegisteredComponent[] => {
   if (state === "choose-source") {
     return ["feed-types"];
   }
 
-  if (state === "enter-username" || state === "choose-repos") {
-    return ["feed-types", ...(issues.length > 0 ? (["validation-issues"] as const) : [])];
+  if (state === "enter-username") {
+    return ["username-choices", ...(issues.length > 0 ? (["validation-issues"] as const) : [])];
+  }
+
+  if (state === "choose-repos") {
+    const starredComponents: RegisteredComponent[] = ["repo-choices"];
+
+    if (draft.repoSelection !== null) {
+      starredComponents.push("settings");
+    }
+
+    if (issues.length > 0) {
+      starredComponents.push("validation-issues");
+    }
+
+    return starredComponents;
   }
 
   const topicComponents: RegisteredComponent[] = [];
@@ -150,7 +290,7 @@ export function AdaptiveStage({ state, ...props }: RegistryProps & { state: Adap
     return null;
   }
 
-  const components = componentsForState(state, props.issues);
+  const components = componentsForState(state, props.draft, props.issues);
 
   if (components.length === 0) {
     return null;

@@ -16,8 +16,24 @@ export function FeedRecipe({ draft }: { draft: FeedDraft }) {
     source = "GitHub starred repositories";
   }
 
-  const topicExpression =
-    draft.topics.length > 0 ? draft.topics.join(" OR ") : "Waiting for topics";
+  let match = "Waiting for topics";
+
+  if (draft.source === "topics" && draft.topics.length > 0) {
+    match = draft.topics.join(" OR ");
+  }
+
+  if (draft.source === "starred") {
+    if (draft.repoSelection?.kind === "all") {
+      match = "All starred repositories";
+    } else if (draft.repoSelection?.kind === "subset") {
+      match =
+        draft.repoSelection.repos.length === 1
+          ? draft.repoSelection.repos[0]
+          : `${draft.repoSelection.repos.length} selected repositories`;
+    } else {
+      match = "Waiting for repositories";
+    }
+  }
 
   return (
     <section aria-labelledby="feed-recipe-title" className="feed-recipe">
@@ -34,7 +50,7 @@ export function FeedRecipe({ draft }: { draft: FeedDraft }) {
         </div>
         <div className="feed-recipe__row">
           <dt>Match</dt>
-          <dd className="feed-recipe__data">{topicExpression}</dd>
+          <dd className="feed-recipe__data">{match}</dd>
         </div>
         <div className="feed-recipe__row">
           <dt>Activity</dt>

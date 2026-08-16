@@ -247,9 +247,14 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
   }
 
   if (value.state === "ready") {
+    const completeTopics = value.draft.source === "topics" && value.draft.topics.length > 0;
+    const completeStarred =
+      value.draft.source === "starred" &&
+      value.draft.username !== null &&
+      value.draft.repoSelection !== null;
+
     return (
-      value.draft.source === "topics" &&
-      value.draft.topics.length > 0 &&
+      (completeTopics || completeStarred) &&
       value.feedUrl !== null &&
       value.showUi &&
       value.ttlSelected

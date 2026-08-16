@@ -14,19 +14,23 @@ the adaptive homepage and every assistant turn.
 
 ## Current status
 
-Phase 2 is complete on `main`.
+Phase 3 is complete on `main`.
 
 The repository currently supports:
 
 - A runtime-flagged **Guide me / Ask for a feed** entry point.
 - Multi-turn typed topic-feed conversations backed by Workers AI.
+- Multi-turn typed starred-repository conversations: username interpretation
+  and validation, all-star generation, subset validation against the user's
+  fetched public starred repositories, and the existing repository picker for
+  subsets, ambiguous names, or review requests.
 - Deterministic application validation, state transitions, product copy, and
   feed URL generation. The model cannot generate markup or URLs.
 - Conversational capability, topic, and settings questions without revealing
   controls automatically.
 - An explicit “Show UI” intent that reveals registered React components for
   the validated conversation state.
-- Mixed typed and point-and-click topic configuration.
+- Mixed typed and point-and-click topic and starred configuration.
 - Controlled mode switching, Guided fallback, stale-URL clearing, Start over,
   and versioned seven-day local persistence.
 - Client and network rate limits, exact `Retry-After` feedback, cancellation,
@@ -56,6 +60,15 @@ state-machine behavior, trust boundaries, rate limits, and persistence rules.
   before the next phase begins.
 
 ## Phase 3 — Starred repositories and full parity
+
+**Status: complete.** Ask mode now builds starred-repository feeds with
+username validation, all-star generation, subset validation against the
+fetched starred list, the shared repository picker, and settings changes
+through conversation or trusted controls. The 25-repository cap, no-user,
+no-stars, and GitHub-error behavior are preserved, and Guided parity is
+maintained for Atom output, activity choices, and update frequencies.
+
+The original vertical slice:
 
 Add the second complete source to Ask mode without changing the established
 topic experience.

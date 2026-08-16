@@ -101,4 +101,15 @@ describe("assistant contracts", () => {
     expect(isLegalTransition("choose-source", "edit-settings")).toBe(true);
     expect(isLegalTransition("choose-source", "choose-repos")).toBe(false);
   });
+
+  it("allows starred-feed transitions without weakening topic-only ones", () => {
+    expect(isLegalTransition("idle", "enter-username")).toBe(true);
+    expect(isLegalTransition("enter-username", "choose-repos")).toBe(true);
+    expect(isLegalTransition("enter-username", "ready")).toBe(true);
+    expect(isLegalTransition("choose-repos", "ready")).toBe(true);
+    expect(isLegalTransition("ready", "choose-repos")).toBe(true);
+    expect(isLegalTransition("recoverable-error", "enter-username")).toBe(true);
+    expect(isLegalTransition("edit-topics", "ready")).toBe(true);
+    expect(isLegalTransition("edit-topics", "enter-username")).toBe(false);
+  });
 });

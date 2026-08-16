@@ -195,6 +195,129 @@ describe("adaptive workspace", () => {
     ).toBeNull();
   });
 
+  it("moves a starred draft to username entry and then repository choice", () => {
+    const starred = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+      type: "set-source",
+      source: "starred",
+    });
+    const withUsername = adaptiveWorkspaceReducer(starred, {
+      type: "set-username",
+      username: "octocat",
+    });
+
+    expect(starred.adaptiveState).toBe("enter-username");
+    expect(withUsername.adaptiveState).toBe("choose-repos");
+    expect(withUsername.draft).toMatchObject({
+      source: "starred",
+      username: "octocat",
+      repoSelection: null,
+      topics: [],
+    });
+  });
+
+  it("clears a stale username and selection when the username is emptied", () => {
+    const withSelection = adaptiveWorkspaceReducer(
+      adaptiveWorkspaceReducer(
+        adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+          type: "set-source",
+          source: "starred",
+        }),
+        { type: "set-username", username: "octocat" },
+      ),
+      { type: "set-repo-selection", repoSelection: { kind: "subset", repos: ["example/repo"] } },
+    );
+    const cleared = adaptiveWorkspaceReducer(withSelection, {
+      type: "set-username",
+      username: " ",
+    });
+
+    expect(cleared.adaptiveState).toBe("enter-username");
+    expect(cleared.draft.username).toBeNull();
+    expect(cleared.draft.repoSelection).toBeNull();
+    expect(cleared.feedUrl).toBeNull();
+  });
+
+  it("clears a generated URL when the repository selection changes", () => {
+    const starredUrl = adaptiveWorkspaceReducer(
+      adaptiveWorkspaceReducer(
+        adaptiveWorkspaceReducer(
+          adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+            type: "set-source",
+            source: "starred",
+          }),
+          { type: "set-username", username: "octocat" },
+        ),
+        { type: "set-repo-selection", repoSelection: { kind: "all" } },
+      ),
+      { type: "set-feed-url", feedUrl: "https://example.com/feed/starred-token" },
+    );
+    const changed = adaptiveWorkspaceReducer(starredUrl, {
+      type: "set-repo-selection",
+      repoSelection: { kind: "subset", repos: ["example/repo"] },
+    });
+
+    expect(changed.feedUrl).toBeNull();
+    expect(changed.adaptiveState).toBe("choose-repos");
+  });
+
+  it("restores a complete starred session with its generated URL", () => {
+    const now = Date.UTC(2026, 6, 19);
+    const serialized = JSON.stringify({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "ready",
+      draft: {
+        ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "all" },
+        ttl: 86400,
+      },
+      feedUrl: "https://example.com/feed/starred-token",
+      showUi: true,
+      ttlSelected: true,
+      transcript: [
+        { role: "user", content: "All of octocat's starred repositories" },
+        { role: "assistant", content: "Your starred-repository feed is ready." },
+      ],
+      composer: "",
+      selectedMode: "ask",
+      version: ADAPTIVE_SESSION_VERSION,
+      savedAt: now - 1_000,
+    });
+
+    expect(parsePersistedWorkspace(serialized, now)).toMatchObject({
+      adaptiveState: "ready",
+      draft: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "all" },
+      },
+      feedUrl: "https://example.com/feed/starred-token",
+    });
+  });
+
+  it("rejects a starred ready state without a username or selection", () => {
+    const now = Date.UTC(2026, 6, 19);
+    const serialized = JSON.stringify({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "ready",
+      draft: {
+        ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+        source: "starred",
+        username: null,
+        repoSelection: { kind: "all" },
+      },
+      feedUrl: "https://example.com/feed/starred-token",
+      showUi: true,
+      ttlSelected: true,
+      selectedMode: "ask",
+      version: ADAPTIVE_SESSION_VERSION,
+      savedAt: now,
+    });
+
+    expect(parsePersistedWorkspace(serialized, now)).toBeNull();
+  });
+
   it("caps composer and issue data before writing a persisted session", () => {
     const setItem = vi.fn<(key: string, value: string) => void>();
     vi.stubGlobal("window", {

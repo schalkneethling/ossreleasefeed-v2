@@ -51,7 +51,15 @@ export const isStateConsistentWithDraft = (state: AdaptiveState, draft: FeedDraf
   }
 
   if (draft.source === "starred") {
-    return state === "enter-username" || state === "choose-repos";
+    if (state === "enter-username" || state === "choose-repos") {
+      return true;
+    }
+
+    if (state === "edit-settings") {
+      return draft.username !== null;
+    }
+
+    return state === "ready" && draft.username !== null && draft.repoSelection !== null;
   }
 
   if (draft.topics.length === 0) {

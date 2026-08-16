@@ -31,10 +31,12 @@ type AskFeedProps = {
   onComposerChange: (composer: string) => void;
   onGenerate: () => void;
   onGuidedFallback: (disabled: boolean) => void;
+  onRepoSelectionChange: (repoSelection: FeedDraft["repoSelection"]) => void;
   onSourceChange: (source: FeedDraft["source"]) => void;
   onStartOver: () => void;
   onTopicsChange: (topics: string[]) => void;
   onTtlChange: (ttl: FeedTtl) => void;
+  onUsernameChange: (username: string) => void;
 };
 
 const formatRetryDelay = (seconds: number | null): string => {
@@ -60,10 +62,12 @@ export function AskFeed({
   onComposerChange,
   onGenerate,
   onGuidedFallback,
+  onRepoSelectionChange,
   onSourceChange,
   onStartOver,
   onTopicsChange,
   onTtlChange,
+  onUsernameChange,
 }: AskFeedProps) {
   const [conversationOpen, setConversationOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,7 +197,8 @@ export function AskFeed({
 
       {transcript.length === 0 ? (
         <p className="ask-feed__empty">
-          Try “What feeds can I create?” or name topics and an update frequency in one request.
+          Try “What feeds can I create?” or name topics, a GitHub username, and an update frequency
+          in one request.
         </p>
       ) : null}
 
@@ -206,9 +211,11 @@ export function AskFeed({
           onActivityChange={onActivityChange}
           onGenerate={onGenerate}
           onGuidedFallback={onGuidedFallback}
+          onRepoSelectionChange={onRepoSelectionChange}
           onSourceChange={onSourceChange}
           onTopicsChange={onTopicsChange}
           onTtlChange={onTtlChange}
+          onUsernameChange={onUsernameChange}
           state={state}
           ttlSelected={ttlSelected}
         />
@@ -254,7 +261,7 @@ export function AskFeed({
       <form aria-labelledby={formLegendId} className="ask-feed__form" onSubmit={submit}>
         <fieldset className="ask-feed__fieldset" disabled={submitting}>
           <legend className="ask-feed__legend" id={formLegendId}>
-            {transcript.length > 0 ? "Continue the conversation" : "Ask for a topic feed"}
+            {transcript.length > 0 ? "Continue the conversation" : "Ask for a feed"}
           </legend>
           <label className="ask-feed__label" htmlFor={inputId}>
             {transcript.length > 0 ? "Your next message" : "Your request"}
