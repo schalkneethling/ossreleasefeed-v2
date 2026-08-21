@@ -38,9 +38,6 @@ importers:
       oxlint:
         specifier: ^1.73.0
         version: 1.73.0
-      playwright:
-        specifier: ^1.62.1
-        version: 1.62.1
       stylelint:
         specifier: ^17.14.0
         version: 17.14.0(typescript@7.0.2)
@@ -2058,19 +2055,9 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright-core@1.62.1:
-    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   playwright@1.61.1:
     resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
     engines: {node: '>=18'}
-    hasBin: true
-
-  playwright@1.62.1:
-    resolution: {integrity: sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==}
-    engines: {node: '>=20'}
     hasBin: true
 
   postcss-bem-linter@4.0.1:
@@ -4031,17 +4018,9 @@ snapshots:
 
   playwright-core@1.61.1: {}
 
-  playwright-core@1.62.1: {}
-
   playwright@1.61.1:
     dependencies:
       playwright-core: 1.61.1
-    optionalDependencies:
-      fsevents: 2.3.2
-
-  playwright@1.62.1:
-    dependencies:
-      playwright-core: 1.62.1
     optionalDependencies:
       fsevents: 2.3.2
 
