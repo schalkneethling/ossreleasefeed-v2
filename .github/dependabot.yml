@@ -11,6 +11,11 @@ updates:
       semver-patch-days: 2
       include:
         - "*"
+    groups:
+      react-runtime:
+        patterns:
+          - "react"
+          - "react-dom"
 
   - package-ecosystem: "github-actions"
     directory: "/"
