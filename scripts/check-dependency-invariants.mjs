@@ -1,13 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import frontendPackage from "../frontend/package.json" with { type: "json" };
 
-const frontendPackagePath = resolve("frontend/package.json");
-const frontendRequire = createRequire(frontendPackagePath);
+const frontendRequire = createRequire(new URL("../frontend/package.json", import.meta.url));
 
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
-const frontendPackage = await readJson(frontendPackagePath);
 const dependencies = frontendPackage.dependencies ?? {};
 const runtimePackages = ["react", "react-dom"];
 const runtimeSpecs = runtimePackages.map((name) => dependencies[name]);
