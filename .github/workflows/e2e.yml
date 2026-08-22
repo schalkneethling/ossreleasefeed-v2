@@ -7,6 +7,7 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -110,6 +111,10 @@ jobs:
       - name: Install dependencies
         if: steps.check-secrets.outputs.configured == 'true'
         run: pnpm install --frozen-lockfile
+
+      - name: Check dependency invariants
+        if: steps.check-secrets.outputs.configured == 'true'
+        run: pnpm run check:dependency-invariants
 
       - name: Install Playwright Browsers
         if: steps.check-secrets.outputs.configured == 'true'

@@ -3,6 +3,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
+  globalTimeout: process.env.CI ? 10 * 60_000 : undefined,
+  maxFailures: process.env.CI ? 1 : 0,
   projects: [
     {
       name: "desktop",
