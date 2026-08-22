@@ -1,8 +1,4 @@
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 import frontendPackage from "../frontend/package.json" with { type: "json" };
-
-const frontendRequire = createRequire(new URL("../frontend/package.json", import.meta.url));
 
 const dependencies = frontendPackage.dependencies ?? {};
 const runtimePackages = ["react", "react-dom"];
@@ -20,8 +16,8 @@ if (runtimeSpecs[0] !== runtimeSpecs[1]) {
 
 const installedPackages = await Promise.all(
   runtimePackages.map(async (name) => {
-    const packagePath = frontendRequire.resolve(`${name}/package.json`);
-    const { default: packageJson } = await import(pathToFileURL(packagePath), {
+    const packageUrl = new URL(`../frontend/node_modules/${name}/package.json`, import.meta.url);
+    const { default: packageJson } = await import(packageUrl.href, {
       with: { type: "json" },
     });
     return [name, packageJson];
