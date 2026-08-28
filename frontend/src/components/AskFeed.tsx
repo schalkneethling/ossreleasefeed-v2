@@ -15,6 +15,7 @@ import { AdaptiveStage } from "./AdaptiveStage";
 import "../styles/adaptive-entry.css";
 
 const REQUEST_TIMEOUT_MS = 15_000;
+type PostSubmitFocus = "composer" | "result" | null;
 
 type AskFeedProps = {
   active: boolean;
@@ -22,12 +23,17 @@ type AskFeedProps = {
   draft: FeedDraft;
   feedUrl: string | null;
   issues: string[];
+  revision: number;
   showUi: boolean;
   state: AdaptiveState;
   ttlSelected: boolean;
   transcript: AssistantHistoryTurn[];
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
-  onAssistantResult: (userMessage: string, response: AssistantTurnResponse) => void;
+  onAssistantResult: (
+    userMessage: string,
+    response: AssistantTurnResponse,
+    baseRevision: number,
+  ) => void;
   onComposerChange: (composer: string) => void;
   onGenerate: () => void;
   onGuidedFallback: (disabled: boolean) => void;
@@ -53,6 +59,7 @@ export function AskFeed({
   draft,
   feedUrl,
   issues,
+  revision,
   showUi,
   state,
   ttlSelected,
@@ -76,7 +83,9 @@ export function AskFeed({
   const inputId = useId();
   const counterId = useId();
   const formLegendId = useId();
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const experimentKeyRef = useRef(getExperimentKey());
+  const postSubmitFocusRef = useRef<PostSubmitFocus>(null);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(REQUEST_TIMEOUT_MS);
   const characterCount = composer.length;
   const charactersRemaining = ASSISTANT_MESSAGE_LIMIT - characterCount;
@@ -92,14 +101,36 @@ export function AskFeed({
 
   useEffect(() => {
     if (!active) {
+      postSubmitFocusRef.current = null;
       cancelCycle();
     }
   }, [active, cancelCycle]);
+
+  useEffect(() => {
+    const focusTarget = postSubmitFocusRef.current;
+
+    if (submitting || !active || focusTarget === null) {
+      return;
+    }
+
+    postSubmitFocusRef.current = null;
+
+    if (focusTarget === "result") {
+      return;
+    }
+
+    composerRef.current?.focus();
+  }, [active, submitting]);
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
 
     const trimmed = composer.trim();
+
+    if (trimmed.toLowerCase() === "start over") {
+      startOver();
+      return;
+    }
 
     if (!trimmed) {
       setError("Enter a request before sending it.");
@@ -114,6 +145,8 @@ export function AskFeed({
     }
 
     const controller = beginCycle();
+    const baseRevision = revision;
+    postSubmitFocusRef.current = null;
     setSubmitting(true);
     setError(null);
     setLastAnnouncement("");
@@ -122,7 +155,6 @@ export function AskFeed({
       const response = await submitAssistantTurn(
         {
           message: trimmed,
-          history: transcript.slice(-6),
           state,
           draft,
           issues,
@@ -132,7 +164,13 @@ export function AskFeed({
         controller.signal,
       );
 
-      onAssistantResult(trimmed, response);
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      onAssistantResult(trimmed, response, baseRevision);
+      postSubmitFocusRef.current =
+        response.state === "ready" && response.feedUrl !== null ? "result" : "composer";
       setLastAnnouncement(
         `${response.message}${response.issues.length > 0 ? ` ${response.issues.join(" ")}` : ""}${response.feedUrl ? " Feed URL ready." : ""}`,
       );
@@ -164,6 +202,9 @@ export function AskFeed({
         "Ask mode could not finish that request. You can retry or continue with the guided builder.",
       );
     } finally {
+      if (!controller.signal.aborted && postSubmitFocusRef.current === null) {
+        postSubmitFocusRef.current = "composer";
+      }
       setSubmitting(false);
       completeCycle(controller);
     }
@@ -175,6 +216,7 @@ export function AskFeed({
     setError(null);
     setLastAnnouncement("Started over with an empty feed.");
     setSubmitting(false);
+    postSubmitFocusRef.current = null;
     onStartOver();
   };
 
@@ -276,6 +318,7 @@ export function AskFeed({
               setError(null);
             }}
             placeholder="Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours."
+            ref={composerRef}
             rows={4}
             value={composer}
           />

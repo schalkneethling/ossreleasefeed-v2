@@ -202,23 +202,33 @@ returns `Retry-After`, which the UI uses for exact retry guidance. Preview
 access should still be treated as public and temporary, not private testing.
 
 The assistant endpoint checks the same flag and two independent rate limits
-before invoking Workers AI. The model can return only a structured intent,
-proposed state, and draft patch. Worker code rejects unknown fields and illegal
-states, validates every topic through GitHub, applies the product's fixed
-defaults and limits, and encodes the feed URL itself. A model response never
-supplies markup or a URL. Missing bindings and evaluation errors fail closed;
-disabling the flag makes new assistant turns return `404`.
+before invoking Workers AI. The model is a constrained semantic parser: it can
+return only an intent, fields explicitly changed by the current message, an
+optional positional repository-selection action, and a categorical unsupported
+reason. It cannot propose workflow state, UI, product copy, markup, or a URL.
+Worker code rejects unknown and contradictory fields, applies the patch,
+validates every GitHub entity, derives the next required decision and visible
+state, and encodes the feed URL itself. Missing bindings and inference errors
+fail closed; disabling the flag makes new assistant turns return `404`.
 
-The browser and Worker share the same legal transition table for `idle`, source
-choice, topic editing, username entry, repository choice, settings editing,
-ready, and recoverable-error states. The model proposes a transition and a
-partial draft patch; the Worker applies the patch, verifies the transition and
-resulting state, validates the complete topic set or the starred-repository
-selection, and returns deterministic product copy and an optional generated
-URL. Capability questions, incomplete requests, corrections, invalid topics,
-invalid or starless usernames, repository subsets that are not starred, and
-unsupported update intervals therefore all use the same authoritative state
-machine rather than model-generated UI.
+The Worker sends the model only the current message and the authoritative
+draft, issues, interval-selection flag, and application-derived required
+decision. The locally retained transcript is presentation state and is not
+trusted or forwarded to the model. Informational intents must contain an empty
+patch and no repository action, so capability and list questions cannot mutate
+the feed. Source inference ignores neutral optional values such as
+`topics: []` and `username: null`, preventing structured-output defaults from
+silently switching branches.
+
+The browser and Worker share semantic state/draft invariants for source choice,
+topic editing, username entry, repository choice, settings editing, ready, and
+recovery. Application code derives editable state from the discriminated draft;
+the model does not participate in transitions. A repository subset is complete
+only when it contains at least one unique repository—an empty subset is rejected
+rather than falling through to the distinct “all starred repositories”
+configuration. Capability questions, corrections, invalid entities, and
+unsupported intervals therefore all pass through one deterministic planner and
+validation boundary.
 
 Starred-repository turns validate the username format, its existence, and its
 public starred count through GitHub before any repository work. An explicit
@@ -232,11 +242,15 @@ panel in the repository-choice state.
 
 Informational turns remain conversational. Feed-type questions return a short
 text explanation, and topic-discovery questions use the current featured-topic
-service to provide examples without revealing controls. A user can ask to
-“Show UI” after any turn; the model classifies that intent, while the Worker
-derives the appropriate state from the validated draft and React reveals only
-the registered components for that state. The model still cannot name
-components, generate markup, or bypass product validation.
+service to provide examples without revealing controls. The exact, narrow
+`show ui` and `hide ui` commands are handled before request-rate accounting and
+inference; more varied visibility requests still use the model's `show-ui` or
+`hide-ui` intent. Each path calls its corresponding deterministic visibility
+planner. For a configured topic feed, showing the UI reveals topic and settings
+controls; for a configured starred feed it reveals username, repository, and
+settings controls. Hiding those controls preserves a completed feed and its
+generated URL as application state while removing the panel from view. The
+model still cannot name components, generate markup, or bypass validation.
 
 Incomplete feed-building turns also remain conversational until the user asks
 for controls. Each deterministic response confirms the validated change,
@@ -247,14 +261,14 @@ stored one-hour value is a control default, not evidence that the user chose an
 interval. A complete request that explicitly includes a supported interval can
 still skip directly to the generated URL.
 
-One reducer owns the topic `FeedDraft` used by Ask and Guided modes. The trusted
-component registry maps the current state to source choices, the controlled
-topic editor, controlled settings, validation issues, the feed-recipe ledger,
-and the generated URL. It renders only the component needed for the current
-decision; topic editing does not also expose settings, and settings do not
-resurface the topic picker. Typed turns and clicks can be mixed freely. Any
-draft change clears a generated URL before it can become stale, and a Guided
-fallback is prefilled with the validated Ask draft.
+One reducer owns the complete `FeedDraft` used by Ask and Guided modes,
+including the starred username and repository selection. The trusted component
+registry maps application-derived state to source, topic, username, repository,
+settings, issue, recipe, and URL components. Typed turns and clicks can be mixed
+freely, and switching modes no longer creates a second starred draft. Generating
+from Guided mode records the visible default interval as selected; any later
+draft change clears the URL. Both the frontend and Worker use the same canonical
+array ordering when encoding equivalent feed configurations.
 
 Ask sessions are stored locally with a schema version and timestamp. Restore
 rejects malformed or internally inconsistent state, expires after seven days,
@@ -263,6 +277,13 @@ conversation, composer, selected interaction mode, and builder state. **Start
 over** clears both the live workspace and its saved snapshot. The saved
 workspace also records whether controls were intentionally revealed, so a
 restored informational conversation does not unexpectedly expose UI.
+
+The workspace also carries a monotonically increasing revision. An assistant
+response is accepted only when the revision still matches the snapshot used to
+start that request. Start over, a mode change, or any direct draft/composer edit
+therefore makes a late response stale instead of letting it overwrite newer
+work. Topic validation and starred-repository lookup completions likewise check
+their abort signal and current input before committing results.
 
 Manual mode changes keep both the Ask composer and a started Guided builder
 mounted but hidden, preserving their shared validated state. The mode change

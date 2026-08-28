@@ -1,24 +1,9 @@
 import { Either, Schema } from "effect";
+import { canonicalizeJson } from "../../../shared/canonical-json";
 import { FeedConfigSchema, type FeedConfig } from "./schemas";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-
-const sortValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.map((item) => sortValue(item));
-  }
-
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, sortValue(nested)]),
-    );
-  }
-
-  return value;
-};
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
   let binary = "";
@@ -42,7 +27,7 @@ const base64ToBytes = (base64: string): Uint8Array => {
 };
 
 export const encodeFeedConfig = (config: FeedConfig): string => {
-  const sorted = sortValue(config);
+  const sorted = canonicalizeJson(config);
   const json = JSON.stringify(sorted);
   const base64 = bytesToBase64(encoder.encode(json));
 

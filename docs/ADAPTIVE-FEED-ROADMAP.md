@@ -45,8 +45,10 @@ state-machine behavior, trust boundaries, rate limits, and persistence rules.
 - The Worker evaluates the runtime flag again for every assistant turn and
   fails closed.
 - One controlled feed draft is shared across Guided and Ask modes.
-- The model proposes intent, state, and a draft patch only. Application code
-  validates GitHub entities and product constraints and creates the URL.
+- The model proposes only semantic intent, explicitly changed draft fields, an
+  optional trusted-order repository action, and an unsupported-reason code.
+  Application code derives state and UI, validates GitHub entities and product
+  constraints, writes product copy, and creates the URL.
 - Informational questions remain textual until controls are requested or a
   control is needed to resolve ambiguity.
 - “Show UI” composes only registered components and reflects the validated
@@ -185,22 +187,21 @@ contents or conversation data.
   free-form data. The separately validated analytics envelope may retain only
   the sanitized page-location field described above. Test both accepted
   payloads and rejection/redaction cases at the analytics boundary.
-- Add a fixed remote Workers AI evaluation set with at least 30 prompt variants
+- Add a fixed model-decision evaluation set with at least 30 prompt variants
   spanning complete, incomplete, corrective, invalid, malicious, topic, and
   starred requests.
 - Commit the evaluation set as an immutable versioned fixture, beginning with
   `adaptive-eval-v1`, and record the exact model ID, system-prompt hash, JSON
-  schema version, and temperature used for each run. Each fixture supplies all
-  prior history, state, and draft context but scores exactly one next model
-  decision.
-- Give every fixture exact expected labels for intent, proposed state, and the
-  normalized partial draft patch. Omitted fields remain distinct from explicit
-  `null`; topic and repository collections use their canonical normalized
-  ordering. Invalid and malicious fixtures must label the intent as
-  `unsupported`, select the fixture's expected safe state, and propose no
-  unapproved draft mutation.
-- Award one unweighted pass only when all three labels—intent, state, and
-  draft—match exactly. The reproducible aggregate is
+  schema version, and temperature used for each run. Each fixture supplies the
+  authoritative current-turn draft and decision context but scores exactly one
+  next model decision.
+- Give every fixture exact expected labels for intent, normalized partial draft
+  patch, repository action, and unsupported reason. Omitted fields remain
+  distinct from explicit `null`; topic and repository collections use their
+  canonical normalized ordering. Application-derived state is scored in a
+  separate deterministic planner assertion. Invalid and malicious fixtures must
+  label the intent as `unsupported` and propose no unapproved draft mutation.
+- Award one unweighted pass only when every semantic label matches exactly. The reproducible aggregate is
   `passing fixtures / total fixtures`, evaluated once across the complete
   fixture version, and must be at least 90%. In addition, every canonical,
   invalid, and malicious fixture must pass, and the end-to-end safety gate must
@@ -215,7 +216,9 @@ contents or conversation data.
 
 ### Phase 5 stop
 
-- Run complete CI, end-to-end tests, and the remote model evaluation.
+- Run complete CI and end-to-end tests. Run any remote model evaluation only
+  after the maintainer explicitly approves its bounded request count and
+  possible Workers AI cost.
 - Complete accessibility, privacy, threat-model, cost, and responsive-design
   reviews.
 - Verify the production kill switch before percentage rollout.

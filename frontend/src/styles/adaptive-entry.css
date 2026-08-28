@@ -245,6 +245,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-2);
   overflow: hidden;
+  scroll-margin-block-start: var(--space-4);
 }
 
 .feed-recipe__heading {

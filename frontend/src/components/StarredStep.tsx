@@ -1,8 +1,7 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useDebounce } from "../hooks/useDebounce";
 import { trackEvent } from "../lib/analytics";
-import { feedUrl, fetchStarredRepos, validateUsername, type Repo } from "../lib/api";
-import { encodeFeedConfig } from "../lib/config";
+import { fetchStarredRepos, validateUsername, type Repo } from "../lib/api";
 import { MAX_STARRED_REPOS } from "../lib/constraints";
 import { useFocusOnMount } from "../hooks/useFocusOnMount";
 import type { FeedDraft, FeedTtl } from "../lib/assistant";
@@ -16,40 +15,73 @@ const DEBOUNCE_MS = 450;
 type UsernameStatus = "idle" | "loading" | "valid" | "not-found" | "no-stars" | "error";
 
 type StarredStepProps = {
-  initialUsername?: string;
+  active: boolean;
+  draft: FeedDraft;
+  feedUrl: string | null;
+  onActivityChange: (activityType: FeedDraft["activityType"]) => void;
+  onGenerate: () => void;
+  onRepoSelectionChange: (repoSelection: FeedDraft["repoSelection"]) => void;
+  onTtlChange: (ttl: FeedTtl) => void;
+  onUsernameChange: (username: string) => void;
 };
 
-export function StarredStep({ initialUsername = "" }: StarredStepProps) {
+export function StarredStep({
+  active,
+  draft,
+  feedUrl,
+  onActivityChange,
+  onGenerate,
+  onRepoSelectionChange,
+  onTtlChange,
+  onUsernameChange,
+}: StarredStepProps) {
   const headingRef = useFocusOnMount<HTMLHeadingElement>();
   const usernameFeedbackId = useId();
 
-  const [username, setUsername] = useState(initialUsername);
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
-  const [activityType, setActivityType] = useState<FeedDraft["activityType"]>("releases");
-  const [ttl, setTtl] = useState<FeedTtl>(3600);
+  const repoSelectionRef = useRef(draft.repoSelection);
+  const onRepoSelectionChangeRef = useRef(onRepoSelectionChange);
+  const lookupControllerRef = useRef<AbortController | null>(null);
+  const username = draft.username ?? "";
+  const currentUsernameRef = useRef(username.trim());
+  const selectedRepos =
+    draft.repoSelection?.kind === "subset"
+      ? new Set(draft.repoSelection.repos)
+      : draft.repoSelection?.kind === "all"
+        ? new Set(repos.slice(0, MAX_STARRED_REPOS).map((repo) => repo.full_name))
+        : new Set<string>();
 
   const debouncedUsername = useDebounce(username.trim(), DEBOUNCE_MS);
+  repoSelectionRef.current = draft.repoSelection;
+  onRepoSelectionChangeRef.current = onRepoSelectionChange;
+  currentUsernameRef.current = username.trim();
+
+  useEffect(() => {
+    lookupControllerRef.current?.abort();
+  }, [active, username]);
 
   // Validate username and fetch repos on debounced change
   useEffect(() => {
-    if (!debouncedUsername) {
+    if (!active || !debouncedUsername) {
       setUsernameStatus("idle");
       setRepos([]);
-      setSelectedRepos(new Set());
       return;
     }
 
     const controller = new AbortController();
+    lookupControllerRef.current = controller;
+    const isCurrentLookup = () =>
+      !controller.signal.aborted && currentUsernameRef.current === debouncedUsername;
     setUsernameStatus("loading");
     setRepos([]);
-    setSelectedRepos(new Set());
-    setGeneratedUrl(null);
 
     validateUsername(debouncedUsername, controller.signal)
       .then((result) => {
+        if (!isCurrentLookup()) {
+          return;
+        }
+
         if (!result.exists) {
           trackEvent("Feed generation failed", { errorType: "username-not-found" });
           setUsernameStatus("not-found");
@@ -62,8 +94,22 @@ export function StarredStep({ initialUsername = "" }: StarredStepProps) {
         }
         return fetchStarredRepos(debouncedUsername, controller.signal)
           .then((fetched) => {
+            if (!isCurrentLookup()) {
+              return;
+            }
+
+            if (fetched.length === 0) {
+              setUsernameStatus("no-stars");
+              return;
+            }
+
             setRepos(fetched);
-            setSelectedRepos(new Set(fetched.slice(0, MAX_STARRED_REPOS).map((r) => r.full_name)));
+            if (repoSelectionRef.current === null) {
+              onRepoSelectionChangeRef.current({
+                kind: "subset",
+                repos: fetched.slice(0, MAX_STARRED_REPOS).map((repo) => repo.full_name),
+              });
+            }
             setUsernameStatus("valid");
           })
           .catch(() => {
@@ -80,13 +126,14 @@ export function StarredStep({ initialUsername = "" }: StarredStepProps) {
         }
       });
 
-    return () => controller.abort();
-  }, [debouncedUsername]);
+    return () => {
+      controller.abort();
 
-  // Clear generated URL when repo selection changes
-  useEffect(() => {
-    setGeneratedUrl(null);
-  }, [selectedRepos]);
+      if (lookupControllerRef.current === controller) {
+        lookupControllerRef.current = null;
+      }
+    };
+  }, [active, debouncedUsername]);
 
   const usernameFeedback = () => {
     if (usernameStatus === "loading") {
@@ -167,7 +214,7 @@ export function StarredStep({ initialUsername = "" }: StarredStepProps) {
             .filter(Boolean)
             .join(" ")}
           id="github-username"
-          onChange={(e) => setUsername(e.target.value)}
+          onChange={(event) => onUsernameChange(event.target.value)}
           placeholder="e.g. octocat"
           spellCheck={false}
           type="text"
@@ -176,48 +223,63 @@ export function StarredStep({ initialUsername = "" }: StarredStepProps) {
         {usernameFeedback()}
       </div>
 
-      {hasRepos ? (
+      {hasRepos && draft.repoSelection?.kind === "all" ? (
+        <div className="repo-list">
+          <p>Including every repository starred by @{debouncedUsername}.</p>
+          <button
+            className="btn-secondary"
+            onClick={() =>
+              onRepoSelectionChange({
+                kind: "subset",
+                repos: repos.slice(0, MAX_STARRED_REPOS).map((repo) => repo.full_name),
+              })
+            }
+            type="button"
+          >
+            Choose specific repositories
+          </button>
+        </div>
+      ) : hasRepos ? (
         <RepoPicker
           key={debouncedUsername}
-          onSelectionChange={setSelectedRepos}
+          onSelectionChange={(selection) =>
+            onRepoSelectionChange(
+              selection.size > 0 ? { kind: "subset", repos: [...selection] } : null,
+            )
+          }
           repos={repos}
           selectedRepos={selectedRepos}
         />
       ) : null}
 
+      {hasRepos && draft.repoSelection?.kind !== "all" ? (
+        <div className="repo-list__all-option">
+          <p>Prefer every starred repository instead?</p>
+          <button
+            className="btn-secondary"
+            onClick={() => onRepoSelectionChange({ kind: "all" })}
+            type="button"
+          >
+            Include all starred repositories
+          </button>
+        </div>
+      ) : null}
+
       {hasRepos ? (
         <FeedConfigPanel
-          activityType={activityType}
+          activityType={draft.activityType}
           disabled={selectedRepos.size === 0}
-          onActivityChange={(nextActivityType) => {
-            setActivityType(nextActivityType);
-            setGeneratedUrl(null);
-          }}
+          onActivityChange={onActivityChange}
           onGenerate={() => {
-            const repoList = [...selectedRepos];
-            setGeneratedUrl(
-              feedUrl(
-                encodeFeedConfig({
-                  source: "starred",
-                  username: debouncedUsername,
-                  repos: repoList.length > 0 ? repoList : null,
-                  activityType,
-                  ttl,
-                  format: "atom",
-                }),
-              ),
-            );
+            onGenerate();
             trackEvent("Feed URL generated successfully", { source: "starred" });
           }}
-          onTtlChange={(nextTtl) => {
-            setTtl(nextTtl);
-            setGeneratedUrl(null);
-          }}
-          ttl={ttl}
+          onTtlChange={onTtlChange}
+          ttl={draft.ttl}
         />
       ) : null}
 
-      {generatedUrl ? <GeneratedFeedUrl url={generatedUrl} /> : null}
+      {feedUrl ? <GeneratedFeedUrl url={feedUrl} /> : null}
     </section>
   );
 }

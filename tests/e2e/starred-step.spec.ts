@@ -95,13 +95,20 @@ test.describe("repo list", () => {
 
     // Deselect one to verify it stays deselected after load more
     await page.getByRole("checkbox").first().uncheck();
+    await expect(page.locator(".repo-item__name").first()).toHaveText("owner/repo-2");
+    await expect(page.locator(".repo-item__name").nth(24)).toHaveText("owner/repo-1");
 
     await page.getByRole("button", { name: /load more/i }).click();
 
     // All 30 repos should now be visible
     await expect(page.getByRole("checkbox")).toHaveCount(30);
-    // The first one is still unchecked
-    await expect(page.getByRole("checkbox").first()).not.toBeChecked();
+    // The deselected repository remains unchecked below the selected repositories.
+    await expect(
+      page
+        .locator(".repo-item")
+        .filter({ has: page.getByText("owner/repo-1", { exact: true }) })
+        .getByRole("checkbox"),
+    ).not.toBeChecked();
     // Load more button is gone
     await expect(page.getByRole("button", { name: /load more/i })).toHaveCount(0);
   });

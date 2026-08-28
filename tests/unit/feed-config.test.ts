@@ -73,6 +73,32 @@ describe("feed config encoding", () => {
     expect(encodeFeedConfig(config)).toBe(encodeFeedConfig(shuffled));
   });
 
+  it("produces the same token for equivalent selection orderings", () => {
+    const topics: FeedConfig = {
+      source: "topics",
+      topics: ["javascript", "css"],
+      topicOperator: "or",
+      activityType: "releases",
+      ttl: 86_400,
+      format: "atom",
+    };
+    const repositories: FeedConfig = {
+      source: "starred",
+      username: "octocat",
+      repos: ["whatwg/html", "example/repo"],
+      activityType: "releases",
+      ttl: 86_400,
+      format: "atom",
+    };
+
+    expect(encodeFeedConfig(topics)).toBe(
+      encodeFeedConfig({ ...topics, topics: ["css", "javascript"] }),
+    );
+    expect(encodeFeedConfig(repositories)).toBe(
+      encodeFeedConfig({ ...repositories, repos: ["example/repo", "whatwg/html"] }),
+    );
+  });
+
   it("applies defaults for omitted optional fields", () => {
     const decoded = decodeFeedConfig(
       encodeRawConfig({

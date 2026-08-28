@@ -101,3 +101,85 @@ export const LEGAL_TRANSITIONS: Readonly<Record<AdaptiveState, readonly Adaptive
     "recoverable-error",
   ],
 };
+
+export const isRepoSelectionComplete = (selection: FeedDraft["repoSelection"]): boolean =>
+  selection?.kind === "all" || (selection?.kind === "subset" && selection.repos.length > 0);
+
+export const editableStateForDraft = (
+  draft: FeedDraft,
+): "choose-source" | "edit-topics" | "enter-username" | "choose-repos" | "edit-settings" => {
+  if (draft.source === null) {
+    return "choose-source";
+  }
+
+  if (draft.source === "topics") {
+    return draft.topics.length > 0 ? "edit-settings" : "edit-topics";
+  }
+
+  if (draft.username === null) {
+    return "enter-username";
+  }
+
+  return isRepoSelectionComplete(draft.repoSelection) ? "edit-settings" : "choose-repos";
+};
+
+export const isStateConsistentWithDraft = (
+  state: AdaptiveState,
+  draft: FeedDraft,
+  ttlSelected: boolean,
+): boolean => {
+  const branchConsistent =
+    (draft.source === null &&
+      draft.topics.length === 0 &&
+      draft.username === null &&
+      draft.repoSelection === null) ||
+    (draft.source === "topics" && draft.username === null && draft.repoSelection === null) ||
+    (draft.source === "starred" && draft.topics.length === 0);
+
+  if (!branchConsistent) {
+    return false;
+  }
+
+  if (state === "recoverable-error") {
+    return true;
+  }
+
+  if (state === "idle" || state === "choose-source") {
+    return draft.source === null;
+  }
+
+  if (draft.source === "topics") {
+    if (state === "edit-topics") {
+      return true;
+    }
+
+    if (state === "edit-settings") {
+      return draft.topics.length > 0;
+    }
+
+    return state === "ready" && draft.topics.length > 0 && ttlSelected;
+  }
+
+  if (draft.source === "starred") {
+    if (state === "enter-username") {
+      return true;
+    }
+
+    if (state === "choose-repos") {
+      return draft.username !== null;
+    }
+
+    if (state === "edit-settings") {
+      return draft.username !== null && isRepoSelectionComplete(draft.repoSelection);
+    }
+
+    return (
+      state === "ready" &&
+      draft.username !== null &&
+      isRepoSelectionComplete(draft.repoSelection) &&
+      ttlSelected
+    );
+  }
+
+  return false;
+};

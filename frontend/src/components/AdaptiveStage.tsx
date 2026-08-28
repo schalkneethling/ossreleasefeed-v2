@@ -1,7 +1,11 @@
 import { createElement, useEffect, useId, useState, type ComponentType } from "react";
 import { fetchStarredRepos, type Repo } from "../lib/api";
-import { useDebounce } from "../hooks/useDebounce";
-import type { AdaptiveState, FeedDraft, FeedTtl } from "../lib/assistant";
+import {
+  isRepoSelectionComplete,
+  type AdaptiveState,
+  type FeedDraft,
+  type FeedTtl,
+} from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { FeedRecipe } from "./FeedRecipe";
 import { RepoPicker } from "./RepoPicker";
@@ -89,17 +93,14 @@ const UsernameChoices = ({ draft, onUsernameChange }: RegistryProps) => {
   );
 };
 
-const USERNAME_DEBOUNCE_MS = 450;
-
 const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) => {
   const titleId = useId();
   const [repos, setRepos] = useState<Repo[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const username = draft.username;
-  const debouncedUsername = useDebounce(username, USERNAME_DEBOUNCE_MS);
 
   useEffect(() => {
-    if (!active || debouncedUsername === null) {
+    if (!active || username === null) {
       setRepos([]);
       setStatus("idle");
       return;
@@ -108,8 +109,12 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
     const controller = new AbortController();
     setStatus("loading");
 
-    fetchStarredRepos(debouncedUsername, controller.signal)
+    fetchStarredRepos(username, controller.signal)
       .then((fetched) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         setRepos(fetched);
         setStatus("loaded");
       })
@@ -120,7 +125,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       });
 
     return () => controller.abort();
-  }, [active, debouncedUsername]);
+  }, [active, username]);
 
   if (draft.repoSelection?.kind === "all") {
     return (
@@ -131,7 +136,12 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         <p className="adaptive-stage__note">
           Including all of @{username}&rsquo;s starred repositories.
         </p>
-        <button className="btn-secondary" onClick={() => onRepoSelectionChange(null)} type="button">
+        <button
+          className="btn-secondary"
+          disabled={status !== "loaded" || repos.length === 0}
+          onClick={() => onRepoSelectionChange(null)}
+          type="button"
+        >
           Choose specific repositories
         </button>
       </section>
@@ -155,7 +165,9 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       ) : (
         <RepoPicker
           key={username ?? "none"}
-          onSelectionChange={(next) => onRepoSelectionChange({ kind: "subset", repos: [...next] })}
+          onSelectionChange={(next) =>
+            onRepoSelectionChange(next.size > 0 ? { kind: "subset", repos: [...next] } : null)
+          }
           repos={repos}
           selectedRepos={selectedRepos}
         />
@@ -163,6 +175,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       <p className="adaptive-stage__note">Prefer every starred repository instead?</p>
       <button
         className="btn-secondary"
+        disabled={status !== "loaded" || repos.length === 0}
         onClick={() => onRepoSelectionChange({ kind: "all" })}
         type="button"
       >
@@ -191,9 +204,7 @@ const Settings = ({
   ttlSelected,
 }: RegistryProps) => {
   const selectionMissing =
-    draft.source === "starred" &&
-    (draft.repoSelection === null ||
-      (draft.repoSelection.kind === "subset" && draft.repoSelection.repos.length === 0));
+    draft.source === "starred" && !isRepoSelectionComplete(draft.repoSelection);
 
   return (
     <FeedConfigPanel
@@ -272,6 +283,14 @@ const componentsForState = (
   }
 
   if (state === "edit-settings") {
+    if (draft.source === "topics") {
+      topicComponents.push("topic-choices");
+    }
+
+    if (draft.source === "starred") {
+      topicComponents.push("username-choices", "repo-choices");
+    }
+
     topicComponents.push("settings");
   }
 

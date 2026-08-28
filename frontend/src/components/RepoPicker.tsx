@@ -21,15 +21,24 @@ export function RepoPicker({
   const [filter, setFilter] = useState("");
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
+  const orderedRepos = useMemo(
+    () =>
+      [...repos].sort(
+        (left, right) =>
+          Number(selectedRepos.has(right.full_name)) - Number(selectedRepos.has(left.full_name)),
+      ),
+    [repos, selectedRepos],
+  );
+
   const filteredRepos = useMemo(() => {
     if (!filter) {
-      return repos;
+      return orderedRepos;
     }
 
     const needle = filter.toLowerCase();
 
-    return repos.filter((repo) => repo.full_name.toLowerCase().includes(needle));
-  }, [repos, filter]);
+    return orderedRepos.filter((repo) => repo.full_name.toLowerCase().includes(needle));
+  }, [orderedRepos, filter]);
 
   const toggleRepo = (fullName: string) => {
     const next = new Set(selectedRepos);
