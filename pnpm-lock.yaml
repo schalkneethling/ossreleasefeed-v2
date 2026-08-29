@@ -22,7 +22,7 @@ importers:
         version: 26.2.0
       '@varlock/1password-plugin':
         specifier: ^2.0.0
-        version: 2.0.0(varlock@1.10.0)
+        version: 2.0.0(varlock@1.17.1)
       '@vitest/coverage-v8':
         specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
@@ -60,8 +60,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       varlock:
-        specifier: ^1.10.0
-        version: 1.10.0
+        specifier: ^1.17.1
+        version: 1.17.1
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(msw@2.15.0(@types/node@26.2.0)(typescript@7.0.2))(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1))
@@ -1414,6 +1414,24 @@ packages:
     peerDependencies:
       varlock: ^1.8.0
 
+  '@varlock/native-helper-darwin@1.17.1':
+    resolution: {integrity: sha512-b1Dzq5VZu9VsSHG05ulYmYBH0zP6Gd8D9tzvkvu1MmGtUBwt/E1teoXAjZvOlLetrwAyXI2Z86Gssu4JxPnt5Q==}
+    os: [darwin]
+
+  '@varlock/native-helper-linux-arm64@1.17.1':
+    resolution: {integrity: sha512-dnrpHCqxJlyvjYMm3u6uC0H4iCmal2qvs6VZBDQc+UdOUfuiHOwkpAoCYlYeB22DNuUqCNqyzQVoqt3BbR+3Yg==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@varlock/native-helper-linux-x64@1.17.1':
+    resolution: {integrity: sha512-fRSPD31umpSntaMxGSVInvknh0mCSKWXiYmM5hqnoUHg5NvlgqNifaYKu82PKydeyUu5vf6INXNHC291eBddqA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@varlock/native-helper-win32-x64@1.17.1':
+    resolution: {integrity: sha512-6GzjTd3mVXdAkvDYdtGtnCzbReCD2DcGSDGPV1EE+vCfBdH/oqMokYeG/zfruhSpERYHdX4BLnQ7iGELq5igbA==}
+    os: [win32, linux]
+
   '@vitejs/plugin-react@6.0.5':
     resolution: {integrity: sha512-BOVzne/NL162sMdResB25mUv+vWMF5NoAjNf09TeGlE7ZpszZWSD3winycicLJw72yeVsoCn/2kOhEuCvEShMA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -2427,8 +2445,8 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
-  varlock@1.10.0:
-    resolution: {integrity: sha512-o4YahQPmNFGjnYDkBYNWffMQBoQqrlzkBS473k4rFsbYfHH3J627/+62gfPYMTqhsg9HF4qC8ogtOR1vJSZUPA==}
+  varlock@1.17.1:
+    resolution: {integrity: sha512-nRxUKuWvvHcCUfLTWu78GYsyR34toOWGG9nhV9ObpVxsZ07mofsAsZrg4zDnWv5sRcujpV8DiQ9I5euDqIQ1WQ==}
     engines: {bun: '>=1.3.3', node: '>=22.3.0'}
     hasBin: true
 
@@ -3509,9 +3527,21 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@varlock/1password-plugin@2.0.0(varlock@1.10.0)':
+  '@varlock/1password-plugin@2.0.0(varlock@1.17.1)':
     dependencies:
-      varlock: 1.10.0
+      varlock: 1.17.1
+
+  '@varlock/native-helper-darwin@1.17.1':
+    optional: true
+
+  '@varlock/native-helper-linux-arm64@1.17.1':
+    optional: true
+
+  '@varlock/native-helper-linux-x64@1.17.1':
+    optional: true
+
+  '@varlock/native-helper-win32-x64@1.17.1':
+    optional: true
 
   '@vitejs/plugin-react@6.0.5(@rolldown/plugin-babel@0.2.3(@babel/core@7.29.7)(rolldown@1.2.6)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)))(babel-plugin-react-compiler@1.0.0)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1))':
     dependencies:
@@ -4524,7 +4554,12 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  varlock@1.10.0: {}
+  varlock@1.17.1:
+    optionalDependencies:
+      '@varlock/native-helper-darwin': 1.17.1
+      '@varlock/native-helper-linux-arm64': 1.17.1
+      '@varlock/native-helper-linux-x64': 1.17.1
+      '@varlock/native-helper-win32-x64': 1.17.1
 
   vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1):
     dependencies:

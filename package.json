@@ -36,7 +36,7 @@
     "stylelint-plugin-use-baseline": "*",
     "stylelint-selector-bem-pattern": "^5.0.0",
     "typescript": "^7.0.2",
-    "varlock": "^1.10.0",
+    "varlock": "^1.17.1",
     "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.9.0"
