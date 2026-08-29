@@ -13,7 +13,7 @@
     "@sentry/cloudflare": "^10.70.0",
     "effect": "^3.22.1",
     "feed": "^6.0.0",
-    "hono": "^4.13.0",
+    "hono": "^4.13.3",
     "sax": "^1.5.0"
   },
   "devDependencies": {
