@@ -1122,6 +1122,125 @@ test.describe("adaptive feed Phase 3", () => {
     ).toBeVisible();
   });
 
+  test("[starred_005] preserves a valid repository when another repository name is corrected", async ({
+    page,
+  }) => {
+    const invalidRepositoryIssue =
+      "“wrapdotdev/warp” is not among @schalkneethling's starred repositories.";
+    const correctedSelection = ["mattpocock/skills", "warpdotdev/warp"];
+    let requestNumber = 0;
+    let correctionRequest: {
+      draft?: { repoSelection?: unknown };
+      issues?: unknown;
+    } | null = null;
+
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 3) {
+        correctionRequest = route.request().postDataJSON();
+      }
+
+      const responses = [
+        {
+          state: "enter-username",
+          draft: starredDraft(null, {
+            kind: "subset",
+            repos: ["wrapdotdev/warp", "mattpocock/skills"],
+          }),
+          message: "Which GitHub username should I use?",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "choose-repos",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: ["mattpocock/skills"],
+          }),
+          message: "Some repositories are not starred by this user.",
+          issues: [invalidRepositoryIssue],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "edit-settings",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: correctedSelection,
+          }),
+          message:
+            "I selected 2 repositories: mattpocock/skills and warpdotdev/warp. Next, choose how often the feed should update.",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "edit-settings",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: correctedSelection,
+          }),
+          message: "Here is the interface for your current feed.",
+          issues: [],
+          feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
+        },
+      ];
+
+      return route.fulfill({ json: responses[requestNumber - 1] });
+    });
+    await page.route("**/api/starred/schalkneethling", (route) =>
+      route.fulfill({
+        json: correctedSelection.map((fullName, index) => ({
+          ...repoFixture[index],
+          full_name: fullName,
+          name: fullName.split("/")[1],
+          owner: { login: fullName.split("/")[0] },
+        })),
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page
+      .getByLabel("Your request")
+      .fill("Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByLabel("Your next message").fill("schalkneethling");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+    await expect(conversation).toContainText(invalidRepositoryIssue);
+
+    await page.getByLabel("Your next message").fill("I mean warpdotdev/warp");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    expect(correctionRequest?.draft?.repoSelection).toEqual({
+      kind: "subset",
+      repos: ["mattpocock/skills"],
+    });
+    expect(correctionRequest?.issues).toEqual([invalidRepositoryIssue]);
+    await expect(conversation.getByText(/I selected 2 repositories/i)).toBeVisible();
+
+    await page.getByLabel("Your next message").fill("show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const repositoryPicker = page.getByRole("list", { name: "Starred repositories" });
+    await expect(
+      repositoryPicker.getByRole("checkbox", { name: /mattpocock\/skills/i }),
+    ).toBeChecked();
+    await expect(
+      repositoryPicker.getByRole("checkbox", { name: /warpdotdev\/warp/i }),
+    ).toBeChecked();
+    await expect(repositoryPicker.getByText("wrapdotdev/warp", { exact: true })).toHaveCount(0);
+  });
+
   test("reveals the username field and repository picker on request", async ({ page }) => {
     let requestNumber = 0;
     await page.route("**/api/assistant/turn", (route) => {

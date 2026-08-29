@@ -33,6 +33,17 @@ Feature: Build a feed from starred repositories
     And GitHub validates both repositories against that user's public stars
     And the assistant confirms that 2 repositories are selected
 
+  @starred_005 @manual @playwright @worker @regression
+  Scenario: Preserve valid repositories when correcting an invalid repository name
+    When the user asks for "wrapdotdev/warp" and "mattpocock/skills" from their starred repositories
+    And the user replies "schalkneethling"
+    Then the assistant reports that "wrapdotdev/warp" is not starred by that user
+    When the user replies "I mean warpdotdev/warp"
+    Then the assistant confirms that 2 repositories are selected
+    When the user asks "show UI"
+    Then "warpdotdev/warp" and "mattpocock/skills" are selected in the repository picker
+    And "wrapdotdev/warp" is not present in the repository picker
+
   @starred_003 @manual @playwright @regression
   Scenario: Clear stale repositories while a changed username is debounced
     Given the visible username is "octocat"

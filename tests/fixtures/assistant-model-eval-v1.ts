@@ -212,6 +212,45 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
     },
   ),
   fixture(
+    "correct-invalid-repository-name",
+    "correction",
+    "I mean warpdotdev/warp",
+    "recovery",
+    {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+    },
+    {
+      draft: starredDraft("schalkneethling", {
+        kind: "subset",
+        repos: ["mattpocock/skills"],
+      }),
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+    },
+  ),
+  fixture(
+    "replace-repository-selection-during-recovery",
+    "correction",
+    "Only use warpdotdev/warp",
+    "recovery",
+    {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+      repoSelectionAction: { kind: "replace" },
+    },
+    {
+      draft: starredDraft("schalkneethling", {
+        kind: "subset",
+        repos: ["mattpocock/skills"],
+      }),
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+    },
+  ),
+  fixture(
     "list-starred-options",
     "informational",
     "Show me the repositories",

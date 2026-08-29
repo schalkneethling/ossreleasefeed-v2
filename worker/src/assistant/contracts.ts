@@ -73,6 +73,7 @@ export type ModelDraftPatch = Omit<Partial<FeedDraft>, "source"> & {
 
 export type ModelRepoSelectionAction =
   | { kind: "all" }
+  | { kind: "replace" }
   | {
       kind: "first";
       count: number;
@@ -122,7 +123,7 @@ const isRepoSelection = (value: unknown): value is FeedDraft["repoSelection"] =>
     return false;
   }
 
-  if (value.kind === "all") {
+  if (value.kind === "all" || value.kind === "replace") {
     return hasAllowedKeys(value, ["kind"], ["kind"]);
   }
 
@@ -239,7 +240,7 @@ const isModelRepoSelectionAction = (value: unknown): value is ModelRepoSelection
     return false;
   }
 
-  if (value.kind === "all") {
+  if (value.kind === "all" || value.kind === "replace") {
     return hasAllowedKeys(value, ["kind"], ["kind"]);
   }
 

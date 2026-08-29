@@ -1839,6 +1839,326 @@ describe("POST /api/assistant/turn", () => {
     });
   });
 
+  it("keeps explicitly named repositories authoritative over a partial model subset", async () => {
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          source: "starred",
+          repoSelection: { kind: "subset", repos: ["invented/repository"] },
+        },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest(
+        "Create a feed from warpdotdev/warp and mattpocock/skills in my starred repositories",
+      ),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
+      draft: {
+        source: "starred",
+        repoSelection: {
+          kind: "subset",
+          repos: ["warpdotdev/warp", "mattpocock/skills"],
+        },
+      },
+    });
+  });
+
+  it("[starred_005] preserves valid repositories when correcting an invalid repository name", async () => {
+    const initiallyRequestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+    const validStarredRepos = ["warpdotdev/warp", "mattpocock/skills"];
+
+    server.use(
+      http.get("https://api.github.com/users/schalkneethling", () =>
+        HttpResponse.json({ login: "schalkneethling" }),
+      ),
+      http.get("https://api.github.com/users/schalkneethling/starred", () =>
+        HttpResponse.json(
+          validStarredRepos.map((fullName) => ({
+            ...repoFixture,
+            full_name: fullName,
+            name: fullName.split("/")[1],
+            owner: { login: fullName.split("/")[0] },
+          })),
+        ),
+      ),
+    );
+
+    const initialTurn = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "starred" },
+      },
+    });
+    const initialResponse = await postAssistant(
+      assistantRequest(
+        "Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories",
+      ),
+      initialTurn.bindings,
+    );
+    const initialPayload = await initialResponse.json();
+
+    expect(initialResponse.status).toBe(200);
+    expect(initialPayload).toMatchObject({
+      state: "enter-username",
+      draft: {
+        source: "starred",
+        username: null,
+        repoSelection: { kind: "subset", repos: initiallyRequestedRepos },
+      },
+    });
+
+    const usernameTurn = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { username: "schalkneethling" },
+      },
+    });
+    const usernameResponse = await postAssistant(
+      {
+        ...assistantRequest("schalkneethling"),
+        state: "enter-username",
+        draft: initialPayload.draft,
+      },
+      usernameTurn.bindings,
+    );
+    const usernamePayload = await usernameResponse.json();
+
+    expect(usernameResponse.status).toBe(200);
+    expect(usernamePayload).toMatchObject({
+      state: "choose-repos",
+      draft: {
+        source: "starred",
+        username: "schalkneethling",
+        repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
+      },
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+    });
+
+    const correctionTurn = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+        },
+      },
+    });
+    const correctionResponse = await postAssistant(
+      {
+        ...assistantRequest("I mean warpdotdev/warp"),
+        state: "choose-repos",
+        draft: usernamePayload.draft,
+        issues: usernamePayload.issues,
+      },
+      correctionTurn.bindings,
+    );
+    const correctionPayload = await correctionResponse.json();
+
+    expect(correctionResponse.status).toBe(200);
+    expect(correctionPayload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        source: "starred",
+        username: "schalkneethling",
+        repoSelection: {
+          kind: "subset",
+          repos: ["mattpocock/skills", "warpdotdev/warp"],
+        },
+      },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(correctionPayload.message).toContain("I selected 2 repositories");
+
+    const [, correctionTurnInput] = correctionTurn.run.mock.calls[0] as [
+      string,
+      { messages: Array<{ role: string; content: string }> },
+    ];
+    expect(JSON.parse(correctionTurnInput.messages[1].content)).toMatchObject({
+      currentTurn: {
+        draft: {
+          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
+        },
+        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+        requiredDecision: "recovery",
+      },
+    });
+  });
+
+  it("replaces retained repositories when recovery explicitly requests only a new subset", async () => {
+    const starredRepos = ["warpdotdev/warp", "mattpocock/skills"];
+
+    server.use(
+      http.get("https://api.github.com/users/schalkneethling", () =>
+        HttpResponse.json({ login: "schalkneethling" }),
+      ),
+      http.get("https://api.github.com/users/schalkneethling/starred", () =>
+        HttpResponse.json(
+          starredRepos.map((fullName) => ({
+            ...repoFixture,
+            full_name: fullName,
+            name: fullName.split("/")[1],
+            owner: { login: fullName.split("/")[0] },
+          })),
+        ),
+      ),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+        },
+        repoSelectionAction: { kind: "replace" },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Only use warpdotdev/warp"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "schalkneethling",
+          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
+        },
+        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+      issues: [],
+    });
+  });
+
+  it("rejects an invented repository in a model-proposed replacement subset", async () => {
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          repoSelection: { kind: "subset", repos: ["invented/repository"] },
+        },
+        repoSelectionAction: { kind: "replace" },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Only use warpdotdev/warp"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "schalkneethling",
+          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
+        },
+        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+      },
+      bindings,
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: "Assistant response was invalid" });
+  });
+
+  it("preserves trusted repository casing when recovery repeats a selected repository", async () => {
+    server.use(
+      octocatUserHandler(),
+      octocatStarsHandler([
+        {
+          ...repoFixture,
+          full_name: "octocat/Hello-World",
+          name: "Hello-World",
+          owner: { login: "octocat" },
+        },
+      ]),
+    );
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          repoSelection: { kind: "subset", repos: ["octocat/hello-world"] },
+        },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("I mean octocat/hello-world"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
+        },
+        issues: ["“other/repo” is not among @octocat's starred repositories."],
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
+      },
+      issues: [],
+    });
+  });
+
+  it("does not turn an unsupported recovery turn into a repository-limit error", async () => {
+    const retainedRepositories = Array.from(
+      { length: 25 },
+      (_, index) => `example/repo-${index + 1}`,
+    );
+
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "unsupported",
+        draftPatch: {},
+        unsupportedReason: "request",
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Email extra/repo to me"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "subset", repos: retainedRepositories },
+        },
+        issues: ["“invalid/repo” is not among @octocat's starred repositories."],
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.message).toBe("I couldn't safely apply that request.");
+    expect(payload.issues).toEqual([
+      "Try changing the repository selection, activity, or update frequency.",
+    ]);
+    expect(payload.issues).not.toContain("Choose no more than 25 repositories.");
+  });
+
   it("validates a username and asks whether to use all starred repositories", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
     const { bindings } = makeAssistantEnv({

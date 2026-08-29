@@ -30,6 +30,7 @@ const MAX_BODY_BYTES = 8_192;
 // upstream response cannot hold the turn open; a deadline reaches the same
 // 503 response as a lookup failure.
 const GITHUB_LOOKUP_TIMEOUT = Duration.seconds(10);
+const MAX_EXPLICIT_REPOSITORIES = 25;
 const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
 const USERNAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/u;
 const TOPIC_LIMIT_ISSUE = "Use between one and five GitHub topic slugs.";
@@ -79,7 +80,7 @@ const MODEL_RESPONSE_SCHEMA = {
                 repos: {
                   type: "array",
                   minItems: 1,
-                  maxItems: 25,
+                  maxItems: MAX_EXPLICIT_REPOSITORIES,
                   items: { type: "string" },
                 },
               },
@@ -99,8 +100,14 @@ const MODEL_RESPONSE_SCHEMA = {
     },
     repoSelectionAction: {
       description:
-        "An explicit action over the trusted starred-repository set. Use all only when the user explicitly requests every starred repository, or first with a count when the user explicitly requests the first N repositories.",
+        "An explicit action over the trusted starred-repository set. Use all only when the user explicitly requests every starred repository, first with a count when the user explicitly requests the first N repositories, or replace when the user explicitly requests that the existing subset be replaced by the complete subset in draftPatch.repoSelection.",
       oneOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: { kind: { const: "replace" } },
+        },
         {
           type: "object",
           additionalProperties: false,
@@ -153,8 +160,9 @@ Use create-or-update-feed for a requested feed change:
 - A generic request to create a feed without selecting a source returns an empty draftPatch. Do not infer topics or a username.
 - Use create-or-update-feed with source topics only when the user explicitly asks for a topic feed or names one or more topics.
 - Use source starred only when the user explicitly refers to starred repositories or a GitHub user's stars. Extract the GitHub username into draftPatch.username. Use kind subset only when the user names specific repositories.
-- When the user explicitly asks to include every starred repository, return repoSelectionAction with kind all. When the user asks to select the first N repositories in the trusted picker order, return repoSelectionAction with kind first and count N. Otherwise omit repoSelectionAction. Leave draftPatch.repoSelection unset for these actions and do not invent repository names.
+- When the user explicitly asks to include every starred repository, return repoSelectionAction with kind all. When the user asks to select the first N repositories in the trusted picker order, return repoSelectionAction with kind first and count N. When the user explicitly asks to replace the existing subset or use only a different subset, return repoSelectionAction with kind replace and put the complete desired subset in draftPatch.repoSelection. Otherwise omit repoSelectionAction. Leave draftPatch.repoSelection unset for all and first actions, and never invent repository names.
 - Named repository subsets are valid before a GitHub username is known. Preserve them in draftPatch.repoSelection so the application can validate them after the user supplies a username.
+- During recovery from an invalid named repository, a corrected repository name supplements the repositories already retained in currentTurn.draft. Use the replace action for an explicitly requested replacement instead.
 - If the current draft already contains a repository subset and the user asks to keep, use, or refer back to those previously mentioned or selected repositories, return an empty draftPatch and no repoSelectionAction. A negative or restrictive reply such as "no, just those two" is never a request for all repositories. Use kind all only for an unmistakable affirmative request for every or all starred repositories.
 
 Normalize topic names to lowercase GitHub topic slugs. When changing topics, return the complete desired topic list after the correction. For settings-only corrections, return only the changed fields.
@@ -460,6 +468,27 @@ const extractExplicitRepositoryNames = (message: string): string[] => {
       ),
     ),
   ];
+};
+
+const mergeRepositoryNames = (
+  current: readonly string[],
+  additions: readonly string[],
+): string[] => {
+  const merged = new Map<string, string>();
+
+  for (const repository of current) {
+    merged.set(repository.toLowerCase(), repository);
+  }
+
+  for (const repository of additions) {
+    const key = repository.toLowerCase();
+
+    if (!merged.has(key)) {
+      merged.set(key, repository);
+    }
+  }
+
+  return [...merged.values()];
 };
 
 const isReadOnlyDecisionValid = (decision: ModelDecision): boolean =>
@@ -1034,23 +1063,90 @@ assistantRoutes.post("/turn", async (ctx) => {
   }
 
   const normalizedModelPatch = normalizeModelPatch(decision.draftPatch);
+  const requiredDecision = requiredDecisionFor(payload);
   const explicitRepositoryNames = extractExplicitRepositoryNames(payload.message);
+  const currentRepositorySelection = payload.draft.repoSelection;
+  let replacementRepositoryNames: string[] | null = null;
+
+  if (decision.repoSelectionAction?.kind === "replace") {
+    if (
+      decision.intent !== "create-or-update-feed" ||
+      payload.draft.source !== "starred" ||
+      currentRepositorySelection?.kind !== "subset" ||
+      normalizedModelPatch.repoSelection?.kind !== "subset"
+    ) {
+      logAssistantFailure("repository-action-context", undefined, decision.intent);
+      return ctx.json({ error: "Assistant response was invalid" }, 502);
+    }
+
+    const allowedRepositoryNames = mergeRepositoryNames(
+      currentRepositorySelection.repos,
+      explicitRepositoryNames,
+    );
+    const allowedByKey = new Map(
+      allowedRepositoryNames.map((repository) => [repository.toLowerCase(), repository]),
+    );
+    const trustedReplacement: string[] = [];
+
+    for (const repository of normalizedModelPatch.repoSelection.repos) {
+      const trustedRepository = allowedByKey.get(repository.toLowerCase());
+
+      if (trustedRepository === undefined) {
+        logAssistantFailure("repository-action-context", undefined, decision.intent);
+        return ctx.json({ error: "Assistant response was invalid" }, 502);
+      }
+
+      trustedReplacement.push(trustedRepository);
+    }
+
+    replacementRepositoryNames = mergeRepositoryNames([], trustedReplacement);
+  }
+
+  const canApplyExplicitRepositoryNames =
+    decision.intent === "create-or-update-feed" &&
+    explicitRepositoryNames.length > 0 &&
+    (normalizedModelPatch.source === "starred" || payload.draft.source === "starred");
+  const recoveredRepositorySelection =
+    canApplyExplicitRepositoryNames &&
+    requiredDecision === "recovery" &&
+    payload.state === "choose-repos" &&
+    payload.draft.source === "starred" &&
+    currentRepositorySelection?.kind === "subset"
+      ? currentRepositorySelection
+      : null;
+  const repositoryNamesForPatch = replacementRepositoryNames
+    ? replacementRepositoryNames
+    : recoveredRepositorySelection
+      ? mergeRepositoryNames(recoveredRepositorySelection.repos, explicitRepositoryNames)
+      : explicitRepositoryNames;
+
+  if (
+    (replacementRepositoryNames || recoveredRepositorySelection) &&
+    repositoryNamesForPatch.length > MAX_EXPLICIT_REPOSITORIES
+  ) {
+    const issue = `Choose no more than ${MAX_EXPLICIT_REPOSITORIES} repositories.`;
+
+    return ctx.json(
+      responseFor("choose-repos", payload.draft, issue, {
+        ttlSelected: payload.ttlSelected,
+        issues: [issue],
+      }),
+    );
+  }
+
   // Deterministic owner/repo entities are authoritative even when the model omits
   // repoSelection; the intent and starred-source gates keep extraction in context.
   const shouldRetainExplicitRepositories =
-    decision.intent === "create-or-update-feed" &&
-    explicitRepositoryNames.length > 0 &&
-    explicitRepositoryNames.length <= 25 &&
-    (normalizedModelPatch.source === "starred" || payload.draft.source === "starred");
+    (replacementRepositoryNames !== null || canApplyExplicitRepositoryNames) &&
+    repositoryNamesForPatch.length <= MAX_EXPLICIT_REPOSITORIES;
   const candidatePatch = shouldRetainExplicitRepositories
     ? {
         ...normalizedModelPatch,
-        repoSelection: { kind: "subset" as const, repos: explicitRepositoryNames },
+        repoSelection: { kind: "subset" as const, repos: repositoryNamesForPatch },
       }
     : normalizedModelPatch;
   const candidate = applyDraftPatch(payload.draft, candidatePatch);
   const candidateTtlSelected = payload.ttlSelected || "ttl" in decision.draftPatch;
-  const requiredDecision = requiredDecisionFor(payload);
   const repositoryAction = shouldRetainExplicitRepositories
     ? undefined
     : decision.repoSelectionAction;

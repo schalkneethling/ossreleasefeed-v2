@@ -93,7 +93,7 @@ describe("assistant contracts", () => {
     ).toBe(true);
   });
 
-  it("validates positional repository-selection actions", () => {
+  it("validates repository-selection actions", () => {
     expect(
       isModelDecision({
         intent: "create-or-update-feed",
@@ -101,6 +101,20 @@ describe("assistant contracts", () => {
         repoSelectionAction: { kind: "all" },
       }),
     ).toBe(true);
+    expect(
+      isModelDecision({
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "replace" },
+      }),
+    ).toBe(true);
+    expect(
+      isModelDecision({
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "replace", count: 1 },
+      }),
+    ).toBe(false);
     expect(
       isModelDecision({
         intent: "create-or-update-feed",

@@ -235,10 +235,12 @@ public starred count through GitHub before any repository work. An explicit
 “all” request builds the feed URL with a `null` repository list (the feed
 generator fetches and caps the starred set at generation time); a named subset
 is checked against the user's fetched public starred repositories and the
-invalid names are reported as issues. The 25-repository cap, no-user,
-no-stars, and GitHub-error behavior match the Guided flow, and activity and
-update-frequency changes work through conversation or the revealed settings
-panel in the repository-choice state.
+invalid names are reported as issues while valid members remain in the trusted
+draft. During that recovery state, explicitly corrected repository names are
+merged with those valid members and the complete subset is revalidated. The
+25-repository cap, no-user, no-stars, and GitHub-error behavior match the Guided
+flow, and activity and update-frequency changes work through conversation or
+the revealed settings panel in the repository-choice state.
 
 Informational turns remain conversational. Feed-type questions return a short
 text explanation, and topic-discovery questions use the current featured-topic

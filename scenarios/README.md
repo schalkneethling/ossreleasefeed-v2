@@ -49,6 +49,7 @@ failed test can be traced back to its acceptance contract.
 | `starred_002`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |
 | `starred_003`        | `tests/e2e/starred-step.spec.ts` and `tests/e2e/adaptive-feed.spec.ts`          |
 | `starred_004`        | `tests/integration/worker-routes.test.ts`                                       |
+| `starred_005`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |
 
 Fixtures use deterministic GitHub responses and fake assistant responses. A
 manual pass may substitute real public topics or users, but must preserve the
