@@ -259,7 +259,7 @@ describe("feed URL generation shared with WebMCP", () => {
       ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
       source: "starred",
       username: "octocat",
-      repoSelection: { kind: "subset", repos: ["octocat/hello-world"] },
+      repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
       activityType: "releases",
       ttl: 21600,
     });
@@ -268,7 +268,7 @@ describe("feed URL generation shared with WebMCP", () => {
     expect(generated && decodeFeedToken(generated)).toEqual({
       activityType: "releases",
       format: "atom",
-      repos: ["octocat/hello-world"],
+      repos: ["octocat/Hello-World"],
       source: "starred",
       ttl: 21600,
       username: "octocat",

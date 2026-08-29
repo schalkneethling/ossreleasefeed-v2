@@ -36,10 +36,10 @@ Feature: Build a feed from starred repositories
   @starred_003 @manual @playwright @regression
   Scenario: Clear stale repositories while a changed username is debounced
     Given the visible username is "octocat"
-    And the repository picker contains "octocat/hello-world"
-    When the user changes the username to "next-user"
-    Then "octocat/hello-world" is removed immediately
-    And repositories for "next-user" have not been requested before the debounce completes
+    And the repository picker contains "octocat/Hello-World"
+    When the user changes the username to "schalkneethling"
+    Then "octocat/Hello-World" is removed immediately
+    And repositories starred by "schalkneethling" have not been requested before the debounce completes
     When the username debounce completes
-    Then repositories for "next-user" are requested once
-    And the repository picker contains only repositories owned by "next-user"
+    Then repositories starred by "schalkneethling" are requested once
+    And the repository picker contains only results from the new request

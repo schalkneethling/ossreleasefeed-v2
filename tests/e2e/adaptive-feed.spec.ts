@@ -981,8 +981,8 @@ test.describe("adaptive feed Phase 3", () => {
 
   const repoFixture = [
     {
-      full_name: "octocat/hello-world",
-      name: "hello-world",
+      full_name: "octocat/Hello-World",
+      name: "Hello-World",
       description: "A hello-world repository",
       stargazers_count: 42,
       owner: { login: "octocat" },
@@ -1178,14 +1178,14 @@ test.describe("adaptive feed Phase 3", () => {
   test("[starred_003] debounces repository loading and clears results when the visible username changes", async ({
     page,
   }) => {
-    let nextUsernameRepoCalls = 0;
+    let changedUsernameRepoCalls = 0;
     await page.route("**/api/assistant/turn", (route) =>
       route.fulfill({
         json: {
           state: "edit-settings",
           draft: starredDraft("octocat", {
             kind: "subset",
-            repos: ["octocat/hello-world"],
+            repos: ["octocat/Hello-World"],
           }),
           message: "Here is the interface for your current feed.",
           issues: [],
@@ -1196,16 +1196,16 @@ test.describe("adaptive feed Phase 3", () => {
       }),
     );
     await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
-    await page.route("**/api/starred/next-user", (route) => {
-      nextUsernameRepoCalls += 1;
+    await page.route("**/api/starred/schalkneethling", (route) => {
+      changedUsernameRepoCalls += 1;
 
       return route.fulfill({
         json: [
           {
             ...repoFixture[0],
-            full_name: "next-user/new-repository",
-            name: "new-repository",
-            owner: { login: "next-user" },
+            full_name: "github/docs",
+            name: "docs",
+            owner: { login: "github" },
           },
         ],
       });
@@ -1215,15 +1215,15 @@ test.describe("adaptive feed Phase 3", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page.getByLabel("Your request").fill("Show UI");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(page.getByText("octocat/hello-world", { exact: true })).toBeVisible();
+    await expect(page.getByText("octocat/Hello-World", { exact: true })).toBeVisible();
 
-    await page.getByRole("textbox", { name: "GitHub username" }).fill("  next-user  ");
-    await expect(page.getByText("octocat/hello-world", { exact: true })).toHaveCount(0);
-    expect(nextUsernameRepoCalls).toBe(0);
-    await expect(page.getByText("next-user/new-repository", { exact: true })).toBeVisible({
+    await page.getByRole("textbox", { name: "GitHub username" }).fill("  schalkneethling  ");
+    await expect(page.getByText("octocat/Hello-World", { exact: true })).toHaveCount(0);
+    expect(changedUsernameRepoCalls).toBe(0);
+    await expect(page.getByText("github/docs", { exact: true })).toBeVisible({
       timeout: 2000,
     });
-    expect(nextUsernameRepoCalls).toBe(1);
+    expect(changedUsernameRepoCalls).toBe(1);
   });
 
   test("builds a subset starred feed with the repository picker", async ({ page }) => {
@@ -1253,7 +1253,7 @@ test.describe("adaptive feed Phase 3", () => {
 
     await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
     await expect(
-      page.locator(".feed-recipe").getByText("octocat/hello-world", { exact: true }),
+      page.locator(".feed-recipe").getByText("octocat/Hello-World", { exact: true }),
     ).toBeVisible();
   });
 
