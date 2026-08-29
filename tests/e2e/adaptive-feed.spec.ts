@@ -1055,6 +1055,7 @@ test.describe("adaptive feed Phase 3", () => {
     const conversation = page.getByRole("list", { name: "Feed builder conversation" });
     await expect(conversation.getByText(/which github username should i use/i)).toBeVisible();
     await expect(page.getByRole("heading", { name: "GitHub username" })).toHaveCount(0);
+    await expect(page.getByText("Your feed URL", { exact: true })).toHaveCount(0);
   });
 
   test("[starred_002] carries named repositories through the username follow-up", async ({

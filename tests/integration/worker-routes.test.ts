@@ -943,7 +943,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("asks for a username for the feed-of-my-starred-repos wording", async () => {
+  it("[starred_001] asks for a username for the feed-of-my-starred-repos wording", async () => {
     const githubCalls = recordGitHubCalls();
     const { bindings, run } = makeAssistantEnv({
       aiResponse: {
@@ -971,7 +971,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("[starred_001] ignores an unsolicited repository action before a username is available", async () => {
+  it("[starred_004] ignores an unsolicited repository action before a username is available", async () => {
     const githubCalls = recordGitHubCalls();
     const { bindings, run } = makeAssistantEnv({
       aiResponse: {
