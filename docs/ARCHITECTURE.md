@@ -291,6 +291,43 @@ aborts any active Ask request. If the runtime flag is disabled, Ask mode is
 removed, its saved session is cleared, and the user is moved to the already
 available prefilled Guided baseline.
 
+## WebMCP browser tool surface
+
+On browsers that expose `document.modelContext`, the frontend progressively
+registers a small WebMCP toolset over the same authoritative workspace used by
+Guided and Ask modes. The first vertical slice supports topic feeds:
+
+- `read-feed-workspace` is always available and returns a sanitized snapshot;
+- `choose-feed-source` is always available and currently accepts `topics`;
+- `set-topics` appears after the topic source is selected;
+- `set-feed-settings` appears after at least one topic is validated; and
+- `generate-feed-url` appears after an update frequency is explicitly chosen.
+
+```mermaid
+flowchart LR
+    Host[WebMCP host] --> Tools[Dynamic document tools]
+    Tools --> Reducer[Adaptive workspace reducer]
+    Tools --> TopicAPI[Topic validation API]
+    Reducer --> Registry[Trusted React component registry]
+    Reducer --> Encoder[Canonical feed encoder]
+    Registry --> VisibleUI[Visible Guided or Ask UI]
+    Encoder --> VisibleUI
+```
+
+Tool schemas help the host form valid calls, while every handler also validates
+inputs and current state at runtime. Topic validation is asynchronous and
+revision-guarded, so a late result cannot overwrite newer user or agent edits.
+Registration lifetimes use abort signals; when the workflow changes, the old
+tool set is removed before the newly applicable tools become live. Tool
+handlers re-check state at execution time in case a host retained a stale tool
+reference.
+
+WebMCP is a deterministic browser command surface, not a second assistant. It
+does not call `POST /api/assistant/turn`, does not expose transcript, composer,
+or experiment identifiers, and cannot provide model-generated UI or URLs.
+Unsupported browsers receive no tools and retain the unchanged application
+experience.
+
 ## What's out of scope
 
 No auth, no database, no server-rendered pages, no queues/durable objects.

@@ -10,7 +10,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "target": "ES2022",
-    "types": ["vite/client"],
+    "types": ["vite/client", "webmcp-types"],
     "useDefineForClassFields": true
   },
   "include": ["src", "vite.config.ts", "../shared"]
