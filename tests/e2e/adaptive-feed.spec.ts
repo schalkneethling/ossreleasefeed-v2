@@ -497,13 +497,13 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
-  test("[adaptive_topic_002] sends the validated snapshot for a correction and replaces the stale URL", async ({
+  test("[adaptive_topic_002] revises the current configuration and displays its newly generated URL", async ({
     page,
   }) => {
     let requestNumber = 0;
-    let correctionBody: {
+    let revisionBody: {
       state?: unknown;
-      draft?: { topics?: unknown };
+      draft?: unknown;
     } | null = null;
 
     await page.route("**/api/assistant/turn", async (route) => {
@@ -525,12 +525,12 @@ test.describe("adaptive feed Phase 2", () => {
         return;
       }
 
-      correctionBody = body;
+      revisionBody = body;
       await route.fulfill({
         json: {
           state: "ready",
           draft: topicDraft(["typescript"], 86400),
-          message: "Your corrected topic feed is ready.",
+          message: "Your revised topic feed is ready.",
           issues: [],
           feedUrl: "https://worker.example/feed/second-token",
           showUi: true,
@@ -549,13 +549,18 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: "Send request" }).click();
 
     await expect.poll(() => requestNumber).toBe(2);
-    expect(correctionBody?.state).toBe("ready");
-    expect(correctionBody?.draft?.topics).toEqual(["css"]);
-    expect(correctionBody).not.toHaveProperty("history");
+    expect(revisionBody?.state).toBe("ready");
+    expect(revisionBody?.draft).toEqual(topicDraft(["css"]));
+    expect(revisionBody).not.toHaveProperty("history");
     await expect(page.getByRole("link", { name: /first-token/i })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /second-token/i })).toBeVisible();
+    const recipe = page.getByRole("region", { name: "Feed recipe" });
+
+    await expect(recipe.getByText("css", { exact: true })).toHaveCount(0);
+    await expect(recipe.getByText("typescript", { exact: true })).toBeVisible();
+    await expect(recipe.getByText("24 hours", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("Your corrected topic feed is ready.", { exact: true }),
+      page.getByText("Your revised topic feed is ready.", { exact: true }),
     ).toBeVisible();
   });
 

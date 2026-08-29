@@ -17,6 +17,19 @@ Each scenario also has a stable journey tag such as `@webmcp_001`. Automated
 test titles should include that tag when the scenario is implemented so a
 failed test can be traced back to its acceptance contract.
 
+## Vocabulary
+
+- **Feed-building session** means the current browser-local application state:
+  the validated configuration, displayed feed URL, conversation, UI state, and
+  revision. The implementation currently persists this state in local storage;
+  it is not a server-side workspace or stored feed record.
+- **Generated feed URL** means an immutable, stateless URL whose token encodes
+  one validated feed configuration. Revising a configuration generates a
+  different URL; it does not modify or invalidate a previously generated URL.
+- **Shown** and **not shown** describe only the URL selected for display in the
+  current feed-building session. They make no claim about whether another URL
+  remains independently usable.
+
 ## Coverage map
 
 | Journey              | Current automated coverage                                                      |

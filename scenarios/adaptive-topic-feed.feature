@@ -23,15 +23,15 @@ Feature: Refine a topic feed across conversation and trusted controls
     And the assistant confirms that the interface is hidden
 
   @adaptive_topic_002
-  Scenario: Correct a completed feed using the validated snapshot
-    Given a completed CSS feed has URL "first-token"
-    When the user asks to use TypeScript and update every 24 hours
-    Then the assistant request contains the validated CSS draft
+  Scenario: Revise the current feed configuration and generate a new URL
+    Given the current feed-building session contains a completed CSS configuration and displays generated URL "first-token"
+    When the user asks to change the current feed to TypeScript and update every 24 hours
+    Then the assistant request contains the validated current CSS configuration
     And the assistant request does not contain conversation history
-    When the assistant returns the corrected TypeScript draft with URL "second-token"
-    Then URL "first-token" is not visible
-    And URL "second-token" is visible
-    And the corrected TypeScript draft is the current workspace
+    When the assistant returns a validated TypeScript configuration with newly generated URL "second-token"
+    Then URL "first-token" is no longer shown in the current feed-building session
+    And URL "second-token" is shown in the current feed-building session
+    And the current validated configuration uses only TypeScript and updates every 24 hours
 
   @adaptive_topic_003 @regression
   Scenario: Ignore a delayed assistant response after a direct edit

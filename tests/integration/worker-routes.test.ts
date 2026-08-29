@@ -1479,7 +1479,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("applies and revalidates a correction to an existing topic feed", async () => {
+  it("generates a new URL from a revised topic-feed configuration", async () => {
     server.use(
       http.get("https://api.github.com/search/topics", ({ request }) => {
         const topic = new URL(request.url).searchParams.get("q") ?? "";
@@ -1510,14 +1510,31 @@ describe("POST /api/assistant/turn", () => {
       bindings,
     );
     const payload = await response.json();
+    const previousToken = encodeFeedConfig({
+      source: "topics",
+      topics: ["css"],
+      topicOperator: "or",
+      activityType: "releases",
+      ttl: 3600,
+      format: "atom",
+    });
+    const revisedToken = encodeFeedConfig({
+      source: "topics",
+      topics: ["typescript"],
+      topicOperator: "or",
+      activityType: "releases",
+      ttl: 86400,
+      format: "atom",
+    });
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
       state: "ready",
       draft: { topics: ["typescript"], ttl: 86400 },
       issues: [],
+      feedUrl: `http://127.0.0.1:8787/feed/${revisedToken}`,
     });
-    expect(payload.feedUrl).toContain("/feed/");
+    expect(payload.feedUrl).not.toBe(`http://127.0.0.1:8787/feed/${previousToken}`);
   });
 
   it("reaches ready on a later turn after an interval was explicitly selected", async () => {
