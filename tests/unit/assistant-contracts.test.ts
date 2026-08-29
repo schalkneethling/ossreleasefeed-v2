@@ -185,7 +185,7 @@ describe("assistant contracts", () => {
           source: "starred",
           repoSelection: {
             kind: "subset",
-            repos: ["wrapdotdev/warp", "mattpocock/skills"],
+            repos: ["warpdotdev/warp", "mattpocock/skills"],
           },
         },
         { username: "schalkneethling" },
@@ -195,7 +195,7 @@ describe("assistant contracts", () => {
       username: "schalkneethling",
       repoSelection: {
         kind: "subset",
-        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        repos: ["warpdotdev/warp", "mattpocock/skills"],
       },
     });
   });

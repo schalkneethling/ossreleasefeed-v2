@@ -159,7 +159,7 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
   fixture(
     "starred-subset-before-username",
     "canonical",
-    "Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories",
+    "Create a feed from warpdotdev/warp and mattpocock/skills in my starred repositories",
     "feed-source",
     {
       intent: "create-or-update-feed",
@@ -167,7 +167,7 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
         source: "starred",
         repoSelection: {
           kind: "subset",
-          repos: ["wrapdotdev/warp", "mattpocock/skills"],
+          repos: ["warpdotdev/warp", "mattpocock/skills"],
         },
       },
     },
@@ -207,7 +207,7 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
     {
       draft: starredDraft("octocat", {
         kind: "subset",
-        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        repos: ["warpdotdev/warp", "mattpocock/skills"],
       }),
     },
   ),

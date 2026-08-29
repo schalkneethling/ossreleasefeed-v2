@@ -24,7 +24,7 @@ Feature: Build a feed from starred repositories
 
   @starred_002 @manual @playwright @worker @regression
   Scenario: Preserve named repositories while asking for the username
-    When the user asks for "wrapdotdev/warp" and "mattpocock/skills" from their starred repositories
+    When the user asks for "warpdotdev/warp" and "mattpocock/skills" from their starred repositories
     And the username is not yet known
     Then both repository names are retained in the trusted draft
     And the assistant asks which GitHub username to use

@@ -1061,7 +1061,7 @@ test.describe("adaptive feed Phase 3", () => {
   test("[starred_002] carries named repositories through the username follow-up", async ({
     page,
   }) => {
-    const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+    const requestedRepos = ["warpdotdev/warp", "mattpocock/skills"];
     let requestNumber = 0;
     let usernameTurnDraft: Record<string, unknown> | null = null;
 
@@ -1092,7 +1092,7 @@ test.describe("adaptive feed Phase 3", () => {
                   3600,
                 ),
                 message:
-                  "I selected 2 repositories: wrapdotdev/warp and mattpocock/skills. Next, choose how often the feed should update.",
+                  "I selected 2 repositories: warpdotdev/warp and mattpocock/skills. Next, choose how often the feed should update.",
                 issues: [],
                 feedUrl: null,
                 showUi: false,
@@ -1105,7 +1105,7 @@ test.describe("adaptive feed Phase 3", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page
       .getByLabel("Your request")
-      .fill("Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repos");
+      .fill("Create a feed from warpdotdev/warp and mattpocock/skills in my starred repos");
     await page.getByRole("button", { name: "Send request" }).click();
     await page.getByLabel("Your next message").fill("schalkneethling");
     await page.getByRole("button", { name: "Send request" }).click();
@@ -1118,7 +1118,7 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(
       page
         .getByRole("list", { name: "Feed builder conversation" })
-        .getByText(/I selected 2 repositories: wrapdotdev\/warp and mattpocock\/skills/i),
+        .getByText(/I selected 2 repositories: warpdotdev\/warp and mattpocock\/skills/i),
     ).toBeVisible();
   });
 

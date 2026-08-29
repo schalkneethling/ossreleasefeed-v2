@@ -1752,7 +1752,7 @@ describe("POST /api/assistant/turn", () => {
   });
 
   it("[starred_002] retains a named repository subset until the username is available", async () => {
-    const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+    const requestedRepos = ["warpdotdev/warp", "mattpocock/skills"];
     const firstTurn = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
@@ -1761,7 +1761,7 @@ describe("POST /api/assistant/turn", () => {
     });
     const firstResponse = await postAssistant(
       assistantRequest(
-        "I want to create a feed from the following starred repos: wrapdotdev/warp and mattpocock/skills",
+        "I want to create a feed from the following starred repos: warpdotdev/warp and mattpocock/skills",
       ),
       firstTurn.bindings,
     );
