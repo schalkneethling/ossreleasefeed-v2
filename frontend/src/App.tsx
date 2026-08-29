@@ -134,15 +134,15 @@ export function App() {
           </p>
         </div>
       </div>
-      <aside aria-label="WebMCP support" className="webmcp-banner">
-        <div className="webmcp-banner__inner">
-          <p className="webmcp-banner__text">
-            {webMcpAvailable
-              ? "WebMCP available — browser agent tools are available on this page."
-              : "WebMCP supported — feed-building tools are available in compatible browsers."}
-          </p>
-        </div>
-      </aside>
+      {webMcpAvailable ? (
+        <aside aria-label="WebMCP support" className="webmcp-banner">
+          <div className="webmcp-banner__inner">
+            <p className="webmcp-banner__text">
+              WebMCP available — browser agent tools are available on this page.
+            </p>
+          </div>
+        </aside>
+      ) : null}
       <header className="site-header">
         <div className="site-header__inner">
           <span className="site-header__wordmark">

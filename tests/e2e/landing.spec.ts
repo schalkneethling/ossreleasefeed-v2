@@ -9,9 +9,7 @@ test.describe("landing page", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: /follow open source releases/i }),
     ).toBeVisible();
-    await expect(page.getByLabel("WebMCP support")).toContainText(
-      "WebMCP supported — feed-building tools are available in compatible browsers.",
-    );
+    await expect(page.getByLabel("WebMCP support")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Create feed" })).toBeVisible();
   });
 
