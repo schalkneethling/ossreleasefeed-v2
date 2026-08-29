@@ -971,7 +971,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("ignores an unsolicited repository action before a username is available", async () => {
+  it("[starred_001] ignores an unsolicited repository action before a username is available", async () => {
     const githubCalls = recordGitHubCalls();
     const { bindings, run } = makeAssistantEnv({
       aiResponse: {
@@ -1734,7 +1734,7 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
-  it("retains a named repository subset until the username is available", async () => {
+  it("[starred_002] retains a named repository subset until the username is available", async () => {
     const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
     const firstTurn = makeAssistantEnv({
       aiResponse: {

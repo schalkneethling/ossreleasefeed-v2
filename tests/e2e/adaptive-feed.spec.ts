@@ -99,7 +99,7 @@ test.describe("adaptive feed Phase 2", () => {
     await expectNoSeriousViolations(page);
   });
 
-  test("replaces a ready summary with editable controls when the user asks to show the UI", async ({
+  test("[adaptive_topic_001] replaces a ready summary with editable controls when the user asks to show the UI", async ({
     page,
   }) => {
     let requestNumber = 0;
@@ -496,7 +496,7 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
-  test("sends the validated snapshot for a correction and replaces the stale URL", async ({
+  test("[adaptive_topic_002] sends the validated snapshot for a correction and replaces the stale URL", async ({
     page,
   }) => {
     let requestNumber = 0;
@@ -558,7 +558,7 @@ test.describe("adaptive feed Phase 2", () => {
     ).toBeVisible();
   });
 
-  test("ignores a response after the draft changes while the request is pending", async ({
+  test("[adaptive_topic_003] ignores a response after the draft changes while the request is pending", async ({
     page,
   }) => {
     let requestNumber = 0;
@@ -1024,7 +1024,9 @@ test.describe("adaptive feed Phase 3", () => {
     await expectNoSeriousViolations(page);
   });
 
-  test("asks for a GitHub username conversationally when it is missing", async ({ page }) => {
+  test("[starred_001] asks for a GitHub username conversationally when it is missing", async ({
+    page,
+  }) => {
     await page.route("**/api/assistant/turn", (route) =>
       route.fulfill({
         json: {
@@ -1049,7 +1051,9 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(page.getByRole("heading", { name: "GitHub username" })).toHaveCount(0);
   });
 
-  test("carries named repositories through the username follow-up", async ({ page }) => {
+  test("[starred_002] carries named repositories through the username follow-up", async ({
+    page,
+  }) => {
     const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
     let requestNumber = 0;
     let usernameTurnDraft: Record<string, unknown> | null = null;
@@ -1164,7 +1168,7 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(page.getByText("All starred repositories", { exact: true })).toBeVisible();
   });
 
-  test("debounces repository loading and clears results when the visible username changes", async ({
+  test("[starred_003] debounces repository loading and clears results when the visible username changes", async ({
     page,
   }) => {
     let nextUsernameRepoCalls = 0;

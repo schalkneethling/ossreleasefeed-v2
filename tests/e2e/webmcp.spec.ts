@@ -113,7 +113,7 @@ const decodeFeedToken = (url: string): unknown => {
   return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
 };
 
-test("WebMCP builds a topic feed through the visible trusted UI", async ({ page }) => {
+test("[webmcp_001] builds a topic feed through the visible trusted UI", async ({ page }) => {
   let assistantCalls = 0;
   await installWebMcpFake(page);
   await page.route("**/api/experiments", (route) =>

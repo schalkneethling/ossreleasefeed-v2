@@ -130,7 +130,9 @@ test.describe("repo list", () => {
     expect(count).toBeLessThan(25);
   });
 
-  test("clears stale repositories before looking up a changed username", async ({ page }) => {
+  test("[starred_003] clears stale repositories before looking up a changed username", async ({
+    page,
+  }) => {
     let nextUsernameRepoCalls = 0;
     await setupValidUser(page);
     await page.route("**/api/users/validate/next-user", (route) =>

@@ -161,7 +161,7 @@ describe("WebMCP tools", () => {
     });
   });
 
-  it("rejects invalid and unknown topics without mutating the workspace", async () => {
+  it("[webmcp_002] rejects invalid and unknown topics without mutating the workspace", async () => {
     const validateTopic = vi.fn<TopicValidator>(async (slug) => ({
       exists: slug !== "unknown-topic",
       name: slug,
@@ -227,7 +227,7 @@ describe("WebMCP tools", () => {
     expect(harness.getWorkspace().draft.activityType).toBe("all");
   });
 
-  it("rechecks state when a previously discovered generate tool is invoked", async () => {
+  it("[webmcp_003] rechecks state when a previously discovered generate tool is invoked", async () => {
     const harness = createHarness();
     await harness.execute("choose-feed-source", { source: "topics" });
     await harness.execute("set-topics", { topics: ["css"] });
