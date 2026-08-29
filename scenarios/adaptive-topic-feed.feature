@@ -34,7 +34,7 @@ Feature: Refine a topic feed across conversation and trusted controls
     And the current validated configuration uses only TypeScript and updates every 24 hours
 
   @adaptive_topic_003 @regression
-  Scenario: Ignore a delayed assistant response after a direct edit
+  Scenario: Ignore a delayed assistant response after the user changes a visible control
     Given the visible controls contain the validated CSS topic
     And an assistant request to change the feed is pending
     When the user selects the JavaScript topic before the response completes

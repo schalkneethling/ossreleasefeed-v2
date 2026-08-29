@@ -564,7 +564,7 @@ test.describe("adaptive feed Phase 2", () => {
     ).toBeVisible();
   });
 
-  test("[adaptive_topic_003] ignores a response after the draft changes while the request is pending", async ({
+  test("[adaptive_topic_003] ignores a delayed response after the user changes a visible control", async ({
     page,
   }) => {
     let requestNumber = 0;
