@@ -15,7 +15,7 @@ body {
 
 .page {
   margin-inline: auto;
-  max-inline-size: 44rem;
+  max-inline-size: 64rem;
   padding-block: var(--space-4) var(--space-16);
   padding-inline: var(--space-4);
 }
@@ -27,7 +27,7 @@ body {
 
 .beta-banner__inner {
   margin-inline: auto;
-  max-inline-size: 44rem;
+  max-inline-size: 64rem;
   padding-block: var(--space-2);
   padding-inline: var(--space-4);
 }
@@ -47,7 +47,7 @@ body {
 
 .site-header__inner {
   margin-inline: auto;
-  max-inline-size: 44rem;
+  max-inline-size: 64rem;
   padding-block: var(--space-3);
   padding-inline: var(--space-4);
 }
@@ -78,7 +78,7 @@ body {
   gap: var(--space-3);
   justify-content: space-between;
   margin-inline: auto;
-  max-inline-size: 44rem;
+  max-inline-size: 64rem;
   padding-block: var(--space-6);
   padding-inline: var(--space-4);
 }

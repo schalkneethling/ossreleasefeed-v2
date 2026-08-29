@@ -55,6 +55,10 @@ export function TopicEditor({ active, selectedTopics, onTopicsChange }: TopicEdi
 
     validateTopic(debouncedCustom, controller.signal)
       .then((validation) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         if (!validation.exists) {
           trackEvent("Feed generation failed", { errorType: "topic-not-found" });
           setCustomStatus("invalid");

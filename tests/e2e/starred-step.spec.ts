@@ -95,13 +95,20 @@ test.describe("repo list", () => {
 
     // Deselect one to verify it stays deselected after load more
     await page.getByRole("checkbox").first().uncheck();
+    await expect(page.locator(".repo-item__name").first()).toHaveText("owner/repo-2");
+    await expect(page.locator(".repo-item__name").nth(24)).toHaveText("owner/repo-1");
 
     await page.getByRole("button", { name: /load more/i }).click();
 
     // All 30 repos should now be visible
     await expect(page.getByRole("checkbox")).toHaveCount(30);
-    // The first one is still unchecked
-    await expect(page.getByRole("checkbox").first()).not.toBeChecked();
+    // The deselected repository remains unchecked below the selected repositories.
+    await expect(
+      page
+        .locator(".repo-item")
+        .filter({ has: page.getByText("owner/repo-1", { exact: true }) })
+        .getByRole("checkbox"),
+    ).not.toBeChecked();
     // Load more button is gone
     await expect(page.getByRole("button", { name: /load more/i })).toHaveCount(0);
   });
@@ -121,6 +128,30 @@ test.describe("repo list", () => {
     const count = await visible.count();
     expect(count).toBeGreaterThan(0);
     expect(count).toBeLessThan(25);
+  });
+
+  test("clears stale repositories before looking up a changed username", async ({ page }) => {
+    let nextUsernameRepoCalls = 0;
+    await setupValidUser(page);
+    await page.route("**/api/users/validate/next-user", (route) =>
+      route.fulfill({ json: { exists: true, username: "next-user", hasStars: true } }),
+    );
+    await page.route("**/api/starred/next-user", (route) => {
+      nextUsernameRepoCalls += 1;
+
+      return route.fulfill({ json: [makeRepo(30)] });
+    });
+    await gotoStarredStep(page);
+
+    const username = page.getByRole("textbox", { name: /github username/i });
+    await username.fill("octocat");
+    await expect(page.getByText("owner/repo-1", { exact: true })).toBeVisible({ timeout: 2000 });
+
+    await username.fill("next-user");
+    await expect(page.getByText("owner/repo-1", { exact: true })).toHaveCount(0);
+    expect(nextUsernameRepoCalls).toBe(0);
+    await expect(page.getByText("owner/repo-30", { exact: true })).toBeVisible({ timeout: 2000 });
+    expect(nextUsernameRepoCalls).toBe(1);
   });
 
   test("'Deselect all' clears all selections", async ({ page }) => {

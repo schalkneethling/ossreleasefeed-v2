@@ -1,3 +1,4 @@
+import { useEffect, useId, useRef } from "react";
 import type { FeedDraft } from "../lib/assistant";
 import { TTL_OPTIONS } from "./FeedConfigPanel";
 
@@ -7,6 +8,8 @@ const activityLabels: Record<FeedDraft["activityType"], string> = {
 };
 
 export function FeedRecipe({ draft }: { draft: FeedDraft }) {
+  const titleId = useId();
+  const recipeRef = useRef<HTMLElement>(null);
   const ttl = TTL_OPTIONS.find((option) => option.value === draft.ttl)?.label ?? "Unknown";
   let source = "Not selected";
 
@@ -35,11 +38,32 @@ export function FeedRecipe({ draft }: { draft: FeedDraft }) {
     }
   }
 
+  useEffect(() => {
+    const recipe = recipeRef.current;
+
+    if (!recipe) {
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    recipe.focus({ preventScroll: true });
+    recipe.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, []);
+
   return (
-    <section aria-labelledby="feed-recipe-title" className="feed-recipe">
+    <section
+      aria-labelledby={titleId}
+      className="feed-recipe"
+      data-feed-recipe=""
+      ref={recipeRef}
+      tabIndex={-1}
+    >
       <div className="feed-recipe__heading">
         <p className="feed-recipe__eyebrow">Assembling</p>
-        <h3 className="feed-recipe__title" id="feed-recipe-title">
+        <h3 className="feed-recipe__title" id={titleId}>
           Feed recipe
         </h3>
       </div>

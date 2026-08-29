@@ -3,6 +3,8 @@ import { AssistantApiError } from "./error";
 import {
   ADAPTIVE_STATES,
   FEED_TTLS,
+  isRepoSelectionComplete,
+  isStateConsistentWithDraft,
   LEGAL_TRANSITIONS,
   type AdaptiveState,
   type FeedDraft,
@@ -11,7 +13,10 @@ import {
 export {
   ADAPTIVE_STATES,
   DEFAULT_FEED_DRAFT,
+  editableStateForDraft,
   FEED_TTLS,
+  isStateConsistentWithDraft,
+  isRepoSelectionComplete,
   LEGAL_TRANSITIONS,
   type AdaptiveState,
   type FeedDraft,
@@ -53,7 +58,6 @@ export type AssistantHistoryTurn = { role: AssistantRole; content: string };
 
 export type AssistantTurnRequest = {
   message: string;
-  history: AssistantHistoryTurn[];
   state: AdaptiveState;
   draft: FeedDraft;
   issues: string[];
@@ -157,7 +161,9 @@ const isRepoSelection = (value: unknown): value is FeedDraft["repoSelection"] =>
   return (
     value.kind === "subset" &&
     hasExactKeys(value, ["kind", "repos"]) &&
-    isStringArray(value.repos, 25)
+    isStringArray(value.repos, 25) &&
+    value.repos.length > 0 &&
+    new Set(value.repos).size === value.repos.length
   );
 };
 
@@ -241,7 +247,8 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
     !isStringArray(value.issues, 5) ||
     !isSecureFeedUrl(value.feedUrl) ||
     typeof value.showUi !== "boolean" ||
-    typeof value.ttlSelected !== "boolean"
+    typeof value.ttlSelected !== "boolean" ||
+    !isStateConsistentWithDraft(value.state, value.draft, value.ttlSelected)
   ) {
     return false;
   }
@@ -251,37 +258,16 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
     const completeStarred =
       value.draft.source === "starred" &&
       value.draft.username !== null &&
-      value.draft.repoSelection !== null;
+      isRepoSelectionComplete(value.draft.repoSelection);
 
-    return (
-      (completeTopics || completeStarred) &&
-      value.feedUrl !== null &&
-      value.showUi &&
-      value.ttlSelected
-    );
+    return (completeTopics || completeStarred) && value.feedUrl !== null && value.ttlSelected;
   }
 
   if (value.feedUrl !== null) {
     return false;
   }
 
-  if (value.state === "idle") {
-    return value.draft.source === null;
-  }
-
-  if (value.state === "choose-source" || value.state === "recoverable-error") {
-    return true;
-  }
-
-  if (value.state === "enter-username" || value.state === "choose-repos") {
-    return value.draft.source === "starred";
-  }
-
-  if (value.state === "edit-topics") {
-    return value.draft.source === "topics";
-  }
-
-  return value.draft.source === "topics" && value.draft.topics.length > 0;
+  return true;
 };
 
 const readRetryAfterSeconds = (response: Response): number | null => {
@@ -352,10 +338,6 @@ export const submitAssistantTurn = async (
   const payload = await readJson(response);
 
   if (!isAssistantTurnResponse(payload)) {
-    throw new AssistantApiError(502);
-  }
-
-  if (!isLegalTransition(request.state, payload.state)) {
     throw new AssistantApiError(502);
   }
 

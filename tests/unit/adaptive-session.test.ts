@@ -42,7 +42,7 @@ describe("adaptive workspace", () => {
       ttl: 86400,
     });
 
-    expect(ready.ttlSelected).toBe(false);
+    expect(ready.ttlSelected).toBe(true);
     expect(changed.draft).toMatchObject({
       source: "topics",
       topics: ["css"],
@@ -70,6 +70,7 @@ describe("adaptive workspace", () => {
   it("records a successful assistant turn and preserves it across mode changes", () => {
     const result = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
       type: "assistant-result",
+      baseRevision: 0,
       userMessage: "Create a CSS feed",
       response: readyResponse,
     });
@@ -83,6 +84,25 @@ describe("adaptive workspace", () => {
       { role: "user", content: "Create a CSS feed" },
       { role: "assistant", content: "Your topic feed is ready." },
     ]);
+  });
+
+  it("ignores an assistant response after the workspace revision changes", () => {
+    const composing = adaptiveWorkspaceReducer(DEFAULT_ADAPTIVE_WORKSPACE, {
+      type: "set-composer",
+      composer: "Create a CSS feed",
+    });
+    const reset = adaptiveWorkspaceReducer(composing, { type: "reset" });
+    const late = adaptiveWorkspaceReducer(reset, {
+      type: "assistant-result",
+      baseRevision: composing.revision,
+      userMessage: "Create a CSS feed",
+      response: readyResponse,
+    });
+
+    expect(late).toBe(reset);
+    expect(late.draft).toEqual(DEFAULT_ADAPTIVE_WORKSPACE.draft);
+    expect(late.transcript).toEqual([]);
+    expect(late.feedUrl).toBeNull();
   });
 
   it("caps restored conversation context by turn and character limits", () => {
@@ -122,7 +142,7 @@ describe("adaptive workspace", () => {
     });
   });
 
-  it("restores a Guided URL without treating the default interval as an Ask selection", () => {
+  it("rejects a ready Guided session that did not record the visible default interval", () => {
     const now = Date.UTC(2026, 6, 19);
     const serialized = JSON.stringify({
       ...DEFAULT_ADAPTIVE_WORKSPACE,
@@ -134,11 +154,7 @@ describe("adaptive workspace", () => {
       savedAt: now,
     });
 
-    expect(parsePersistedWorkspace(serialized, now)).toMatchObject({
-      adaptiveState: "ready",
-      selectedMode: "guided",
-      ttlSelected: false,
-    });
+    expect(parsePersistedWorkspace(serialized, now)).toBeNull();
   });
 
   it("rejects expired, mismatched, and stale-URL sessions", () => {
@@ -171,18 +187,6 @@ describe("adaptive workspace", () => {
       parsePersistedWorkspace(
         JSON.stringify({
           ...base,
-          adaptiveState: "ready",
-          draft: readyResponse.draft,
-          feedUrl: readyResponse.feedUrl,
-          showUi: false,
-        }),
-        now,
-      ),
-    ).toBeNull();
-    expect(
-      parsePersistedWorkspace(
-        JSON.stringify({
-          ...base,
           adaptiveState: "edit-settings",
           draft: {
             ...base.draft,
@@ -193,6 +197,27 @@ describe("adaptive workspace", () => {
         now,
       ),
     ).toBeNull();
+  });
+
+  it("restores a ready feed while its interface is hidden", () => {
+    const now = Date.UTC(2026, 6, 19);
+    const serialized = JSON.stringify({
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "ready",
+      draft: readyResponse.draft,
+      feedUrl: readyResponse.feedUrl,
+      showUi: false,
+      ttlSelected: true,
+      selectedMode: "ask",
+      version: ADAPTIVE_SESSION_VERSION,
+      savedAt: now,
+    });
+
+    expect(parsePersistedWorkspace(serialized, now)).toMatchObject({
+      adaptiveState: "ready",
+      feedUrl: readyResponse.feedUrl,
+      showUi: false,
+    });
   });
 
   it("moves a starred draft to username entry and then repository choice", () => {
@@ -212,6 +237,33 @@ describe("adaptive workspace", () => {
       username: "octocat",
       repoSelection: null,
       topics: [],
+    });
+  });
+
+  it("preserves a pending repository subset when the username is entered", () => {
+    const pending = {
+      ...DEFAULT_ADAPTIVE_WORKSPACE,
+      adaptiveState: "enter-username" as const,
+      draft: {
+        ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+        source: "starred" as const,
+        repoSelection: {
+          kind: "subset" as const,
+          repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        },
+      },
+    };
+    const withUsername = adaptiveWorkspaceReducer(pending, {
+      type: "set-username",
+      username: "schalkneethling",
+    });
+
+    expect(withUsername.draft).toMatchObject({
+      username: "schalkneethling",
+      repoSelection: {
+        kind: "subset",
+        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+      },
     });
   });
 
@@ -257,7 +309,7 @@ describe("adaptive workspace", () => {
     });
 
     expect(changed.feedUrl).toBeNull();
-    expect(changed.adaptiveState).toBe("choose-repos");
+    expect(changed.adaptiveState).toBe("edit-settings");
   });
 
   it("restores a complete starred session with its generated URL", () => {

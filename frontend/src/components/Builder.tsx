@@ -12,9 +12,12 @@ type BuilderProps = {
   feedUrl: string | null;
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
   onGenerateTopicUrl: () => void;
+  onGenerateStarredUrl: () => void;
+  onRepoSelectionChange: (repoSelection: FeedDraft["repoSelection"]) => void;
   onSourceChange: (source: FeedMode) => void;
   onTopicsChange: (topics: string[]) => void;
   onTtlChange: (ttl: FeedTtl) => void;
+  onUsernameChange: (username: string) => void;
 };
 
 export function Builder({
@@ -23,9 +26,12 @@ export function Builder({
   feedUrl,
   onActivityChange,
   onGenerateTopicUrl,
+  onGenerateStarredUrl,
+  onRepoSelectionChange,
   onSourceChange,
   onTopicsChange,
   onTtlChange,
+  onUsernameChange,
 }: BuilderProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -63,7 +69,16 @@ export function Builder({
         />
       ) : null}
       {draft.source === "starred" ? (
-        <StarredStep initialUsername={draft.username ?? undefined} />
+        <StarredStep
+          active={active}
+          draft={draft}
+          feedUrl={feedUrl}
+          onActivityChange={onActivityChange}
+          onGenerate={onGenerateStarredUrl}
+          onRepoSelectionChange={onRepoSelectionChange}
+          onTtlChange={onTtlChange}
+          onUsernameChange={onUsernameChange}
+        />
       ) : null}
     </>
   );

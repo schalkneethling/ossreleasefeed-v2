@@ -72,12 +72,99 @@ test.describe("adaptive feed Phase 2", () => {
     expect(currentExperimentKey).toMatch(experimentKeyPattern);
     expect(assistantExperimentKey).toBe(currentExperimentKey);
     expect(assistantMessage).toContain("CSS, JavaScript, and TypeScript");
+    const recipe = page.getByRole("region", { name: "Feed recipe" });
+
+    await expect(recipe).toBeFocused();
     await expect(page.getByText("Your topic feed is ready.", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: /worker\.example\/feed/ })).toHaveAttribute(
-      "href",
-      "https://worker.example/feed/canonical-token",
-    );
+    const feedUrl = page.getByRole("link", { name: /worker\.example\/feed/ });
+
+    await expect(feedUrl).toHaveAttribute("href", "https://worker.example/feed/canonical-token");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const recipeElement = document.querySelector<HTMLElement>("[data-feed-recipe]");
+          const urlElement = document.querySelector<HTMLElement>(".feed-url");
+
+          if (!recipeElement || !urlElement) {
+            return false;
+          }
+
+          const recipeBounds = recipeElement.getBoundingClientRect();
+          const urlBounds = urlElement.getBoundingClientRect();
+
+          return recipeBounds.top >= 0 && urlBounds.bottom <= window.innerHeight;
+        }),
+      )
+      .toBe(true);
     await expectNoSeriousViolations(page);
+  });
+
+  test("replaces a ready summary with editable controls when the user asks to show the UI", async ({
+    page,
+  }) => {
+    let requestNumber = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      return route.fulfill({
+        json:
+          requestNumber === 1
+            ? {
+                state: "ready",
+                draft: topicDraft(["css", "javascript"], 86400),
+                message: "Your topic feed is ready.",
+                issues: [],
+                feedUrl: "https://worker.example/feed/ready-token",
+                showUi: true,
+                ttlSelected: true,
+              }
+            : requestNumber === 2
+              ? {
+                  state: "edit-settings",
+                  draft: topicDraft(["css", "javascript"], 86400),
+                  message: "Here is the interface for your current feed.",
+                  issues: [],
+                  feedUrl: null,
+                  showUi: true,
+                  ttlSelected: true,
+                }
+              : {
+                  state: "ready",
+                  draft: topicDraft(["css", "javascript"], 86400),
+                  message: "I've hidden the feed interface.",
+                  issues: [],
+                  feedUrl: "https://worker.example/feed/ready-token",
+                  showUi: false,
+                  ttlSelected: true,
+                },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS and JavaScript feed every 24 hours");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /ready-token/i })).toBeVisible();
+    await expect(page.getByLabel("Update frequency")).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(page.getByRole("heading", { name: "Topics" })).toBeVisible();
+    await expect(page.getByLabel("Update frequency")).toHaveValue("86400");
+    await expect(page.getByRole("button", { name: /generate feed url/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /ready-token/i })).toHaveCount(0);
+
+    await page.getByLabel("Your next message").fill("Hide UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByLabel("Update frequency")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByText("I've hidden the feed interface.", { exact: true })).toBeVisible();
   });
 
   test("returns to Guided mode when the runtime flag blocks a turn", async ({ page }) => {
@@ -193,6 +280,41 @@ test.describe("adaptive feed Phase 2", () => {
     );
   });
 
+  test("records the Guided default interval before an Ask follow-up", async ({ page }) => {
+    let assistantRequest: Record<string, unknown> | null = null;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      assistantRequest = route.request().postDataJSON();
+      await route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"]),
+          message: "You can create feeds by GitHub topic or from a user's starred repositories.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/guided-token",
+          showUi: true,
+          ttlSelected: true,
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "Create feed" }).click();
+    await page.getByRole("button", { name: /feed by topic/i }).click();
+    await page.getByRole("checkbox", { name: "CSS" }).check();
+    await page.getByRole("button", { name: /generate feed url/i }).click();
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("What feeds can I create?");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    expect(assistantRequest).toMatchObject({
+      state: "ready",
+      draft: { source: "topics", topics: ["css"], ttl: 3600 },
+      ttlSelected: true,
+    });
+  });
+
   test("answers a capability question and lets the user continue with controls", async ({
     page,
   }) => {
@@ -255,7 +377,7 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByLabel("Update frequency").selectOption("3600");
     await expect(page.getByRole("button", { name: /generate feed url/i })).toBeEnabled();
     await page.getByRole("button", { name: /generate feed url/i }).click();
-    await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Feed recipe" })).toBeFocused();
   });
 
   test("supports an incomplete request followed by clicks", async ({ page }) => {
@@ -370,16 +492,17 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: "Send request" }).click();
 
     await expect(page.getByLabel("Update frequency")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Topics" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
-  test("sends recent history for a correction and replaces the stale URL", async ({ page }) => {
+  test("sends the validated snapshot for a correction and replaces the stale URL", async ({
+    page,
+  }) => {
     let requestNumber = 0;
     let correctionBody: {
       state?: unknown;
       draft?: { topics?: unknown };
-      history?: unknown[];
     } | null = null;
 
     await page.route("**/api/assistant/turn", async (route) => {
@@ -427,12 +550,74 @@ test.describe("adaptive feed Phase 2", () => {
     await expect.poll(() => requestNumber).toBe(2);
     expect(correctionBody?.state).toBe("ready");
     expect(correctionBody?.draft?.topics).toEqual(["css"]);
-    expect(correctionBody?.history).toHaveLength(2);
+    expect(correctionBody).not.toHaveProperty("history");
     await expect(page.getByRole("link", { name: /first-token/i })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /second-token/i })).toBeVisible();
     await expect(
       page.getByText("Your corrected topic feed is ready.", { exact: true }),
     ).toBeVisible();
+  });
+
+  test("ignores a response after the draft changes while the request is pending", async ({
+    page,
+  }) => {
+    let requestNumber = 0;
+    let releaseStaleResponse: (() => void) | undefined;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 1) {
+        await route.fulfill({
+          json: {
+            state: "edit-settings",
+            draft: topicDraft(["css"]),
+            message: "I selected the CSS topic.",
+            issues: [],
+            feedUrl: null,
+            showUi: true,
+            ttlSelected: false,
+          },
+        });
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        releaseStaleResponse = resolve;
+      });
+      await route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["typescript"], 86400),
+          message: "This stale response must be ignored.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/stale-token",
+          showUi: true,
+          ttlSelected: true,
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await page.getByLabel("Your next message").fill("Change this feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await expect.poll(() => typeof releaseStaleResponse).toBe("function");
+
+    const javascriptTopic = page.getByRole("checkbox", { name: "JavaScript" });
+    await javascriptTopic.check();
+    releaseStaleResponse?.();
+
+    await expect(page.getByRole("button", { name: "Send request" })).toBeEnabled();
+    await expect(javascriptTopic).toBeFocused();
+    await expect(
+      page.getByText("This stale response must be ignored.", { exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /stale-token/i })).toHaveCount(0);
+    await expect(page.getByLabel("Your next message")).toHaveValue("Change this feed");
   });
 
   test("keeps recovery conversational until the user requests the relevant controls", async ({
@@ -553,7 +738,30 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByLabel("Your next message")).toHaveValue("Change the activity next");
     await expect(page.getByText("Review the feed settings.", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Update frequency")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Topics" })).toBeVisible();
+  });
+
+  test("returns focus to the message field after an assistant response", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "edit-settings",
+          draft: topicDraft(["css"]),
+          message: "Review the feed settings.",
+          issues: [],
+          feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
+        },
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    await expect(page.getByLabel("Your next message")).toBeFocused();
   });
 
   test("starts over without carrying conversation or draft state", async ({ page }) => {
@@ -581,6 +789,37 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("link", { name: /reset-token/i })).toHaveCount(0);
     await expect(page.getByRole("list", { name: "Feed builder conversation" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
+  });
+
+  test("handles the exact start over message locally", async ({ page }) => {
+    let assistantRequests = 0;
+    await page.route("**/api/assistant/turn", (route) => {
+      assistantRequests += 1;
+
+      return route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"]),
+          message: "Your topic feed is ready.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/reset-token",
+          showUi: true,
+          ttlSelected: true,
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByLabel("Your next message").fill("start over");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    expect(assistantRequests).toBe(1);
+    await expect(page.getByLabel("Your request")).toHaveValue("");
+    await expect(page.getByRole("list", { name: "Feed builder conversation" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /reset-token/i })).toHaveCount(0);
   });
 
   test("offers a prefilled Guided fallback after an assistant or GitHub failure", async ({
@@ -667,8 +906,9 @@ test.describe("adaptive feed Phase 2", () => {
       localStorage.setItem(
         "ossreleasefeed:adaptive-session",
         JSON.stringify({
-          version: 3,
+          version: 4,
           savedAt: Date.now(),
+          revision: 1,
           adaptiveState: "edit-topics",
           draft: {
             source: "topics",
@@ -809,6 +1049,68 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(page.getByRole("heading", { name: "GitHub username" })).toHaveCount(0);
   });
 
+  test("carries named repositories through the username follow-up", async ({ page }) => {
+    const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+    let requestNumber = 0;
+    let usernameTurnDraft: Record<string, unknown> | null = null;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 2) {
+        usernameTurnDraft = route.request().postDataJSON().draft;
+      }
+
+      return route.fulfill({
+        json:
+          requestNumber === 1
+            ? {
+                state: "enter-username",
+                draft: starredDraft(null, { kind: "subset", repos: requestedRepos }),
+                message: "Which GitHub username should I use?",
+                issues: [],
+                feedUrl: null,
+                showUi: false,
+                ttlSelected: false,
+              }
+            : {
+                state: "edit-settings",
+                draft: starredDraft(
+                  "schalkneethling",
+                  { kind: "subset", repos: requestedRepos },
+                  3600,
+                ),
+                message:
+                  "I selected 2 repositories: wrapdotdev/warp and mattpocock/skills. Next, choose how often the feed should update.",
+                issues: [],
+                feedUrl: null,
+                showUi: false,
+                ttlSelected: false,
+              },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page
+      .getByLabel("Your request")
+      .fill("Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repos");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByLabel("Your next message").fill("schalkneethling");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    expect(usernameTurnDraft).toMatchObject({
+      source: "starred",
+      username: null,
+      repoSelection: { kind: "subset", repos: requestedRepos },
+    });
+    await expect(
+      page
+        .getByRole("list", { name: "Feed builder conversation" })
+        .getByText(/I selected 2 repositories: wrapdotdev\/warp and mattpocock\/skills/i),
+    ).toBeVisible();
+  });
+
   test("reveals the username field and repository picker on request", async ({ page }) => {
     let requestNumber = 0;
     await page.route("**/api/assistant/turn", (route) => {
@@ -860,6 +1162,57 @@ test.describe("adaptive feed Phase 3", () => {
 
     await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
     await expect(page.getByText("All starred repositories", { exact: true })).toBeVisible();
+  });
+
+  test("debounces repository loading and clears results when the visible username changes", async ({
+    page,
+  }) => {
+    let nextUsernameRepoCalls = 0;
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "edit-settings",
+          draft: starredDraft("octocat", {
+            kind: "subset",
+            repos: ["octocat/hello-world"],
+          }),
+          message: "Here is the interface for your current feed.",
+          issues: [],
+          feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
+        },
+      }),
+    );
+    await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
+    await page.route("**/api/starred/next-user", (route) => {
+      nextUsernameRepoCalls += 1;
+
+      return route.fulfill({
+        json: [
+          {
+            ...repoFixture[0],
+            full_name: "next-user/new-repository",
+            name: "new-repository",
+            owner: { login: "next-user" },
+          },
+        ],
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await expect(page.getByText("octocat/hello-world", { exact: true })).toBeVisible();
+
+    await page.getByRole("textbox", { name: "GitHub username" }).fill("  next-user  ");
+    await expect(page.getByText("octocat/hello-world", { exact: true })).toHaveCount(0);
+    expect(nextUsernameRepoCalls).toBe(0);
+    await expect(page.getByText("next-user/new-repository", { exact: true })).toBeVisible({
+      timeout: 2000,
+    });
+    expect(nextUsernameRepoCalls).toBe(1);
   });
 
   test("builds a subset starred feed with the repository picker", async ({ page }) => {

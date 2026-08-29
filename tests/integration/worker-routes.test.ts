@@ -34,7 +34,6 @@ const makeAssistantEnv = ({
   enabled = true,
   aiResponse = {
     intent: "create-or-update-feed",
-    proposedState: "ready",
     draftPatch: {
       source: "topics",
       topics: ["css", "javascript", "typescript"],
@@ -87,7 +86,6 @@ const makeAssistantEnv = ({
 
 const assistantRequest = (message: string) => ({
   message,
-  history: [],
   state: "idle" as const,
   draft: DEFAULT_FEED_DRAFT,
   issues: [],
@@ -530,7 +528,7 @@ describe("POST /api/assistant/turn", () => {
     const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv();
     const response = await postAssistant(
       assistantRequest(
-        "Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours.",
+        "Build a topic feed for CSS, JavaScript, and TypeScript with a daily refresh.",
       ),
       bindings,
     );
@@ -558,7 +556,7 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: true,
     });
     expect(run).toHaveBeenCalledWith(
-      "@cf/meta/llama-3.1-8b-instruct-fast",
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       expect.objectContaining({
         temperature: 0,
         response_format: expect.objectContaining({ type: "json_schema" }),
@@ -569,25 +567,110 @@ describe("POST /api/assistant/turn", () => {
     expect(networkLimit).toHaveBeenCalledWith({ key: "unknown-network" });
   });
 
-  it("sends the conversation history as chat messages and the current turn separately", async () => {
+  it("creates a complete topic feed after a topic-list turn without repeating discovery", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "topics", topics: ["javascript", "css"], ttl: 86400 },
+      },
+    });
+    const response = await postAssistant(
+      {
+        message: "Create a feed for JavaScript and CSS that updates every 24 hours",
+        state: "edit-topics",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
+        issues: [],
+        ttlSelected: false,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: {
+        source: "topics",
+        topics: ["javascript", "css"],
+        ttl: 86400,
+      },
+      issues: [],
+      showUi: true,
+      ttlSelected: true,
+    });
+    expect(payload.message).toBe("Your topic feed is ready.");
+    expect(payload.feedUrl).toContain("/feed/");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("applies an interval-only follow-up from the model decision", async () => {
+    server.use(
+      http.get("https://api.github.com/search/topics", ({ request }) => {
+        const topic = new URL(request.url).searchParams.get("q") ?? "";
+
+        return HttpResponse.json({
+          items: [{ name: topic, display_name: topic, short_description: null }],
+        });
+      }),
+    );
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {
+          topics: [],
+          username: null,
+          repoSelection: null,
+          ttl: 86400,
+          format: "atom",
+          topicOperator: "or",
+        },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("24 hours"),
+        state: "edit-settings",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css", "javascript"],
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: { topics: ["css", "javascript"], ttl: 86400 },
+      issues: [],
+      showUi: true,
+      ttlSelected: true,
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("sends only the authoritative current turn to the model", async () => {
     const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "list-settings",
-        proposedState: "edit-settings",
         draftPatch: {},
       },
     });
     const response = await postAssistant(
       {
         message: "list available options",
-        history: [
-          { role: "user", content: "I want a CSS feed" },
-          {
-            role: "assistant",
-            content:
-              "I selected the topic css. Next, choose how often the feed should update. I can show you the settings UI or list the available options.",
-          },
-        ],
         state: "edit-settings",
         draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
         issues: [],
@@ -601,26 +684,25 @@ describe("POST /api/assistant/turn", () => {
       string,
       { messages: Array<{ role: string; content: string }> },
     ];
-    expect(input.messages).toHaveLength(4);
-    expect(input.messages[1]).toEqual({ role: "user", content: "I want a CSS feed" });
-    expect(input.messages[2]).toEqual({
-      role: "user",
-      content:
-        "[Previous assistant response] I selected the topic css. Next, choose how often the feed should update. I can show you the settings UI or list the available options.",
-    });
-    expect(JSON.parse(input.messages[3].content)).toEqual({
-      message: "list available options",
-      state: "edit-settings",
-      draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+    expect(input.messages).toHaveLength(2);
+    expect(input.messages[1].role).toBe("user");
+    expect(JSON.parse(input.messages[1].content)).toEqual({
+      currentTurn: {
+        message: "list available options",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+        issues: [],
+        ttlSelected: false,
+        requiredDecision: "feed-settings",
+      },
     });
   });
 
   it("rejects an invalid model decision without validating topics", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: { source: "topics", topics: ["css"] },
         unexpected: "field",
       },
@@ -629,14 +711,72 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(502);
     expect(githubCalls).toHaveLength(0);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "assistant_turn_failure",
+        stage: "model-output",
+        errorMessage: "invalid-decision",
+      }),
+    );
+    consoleError.mockRestore();
   });
 
-  it("rejects an illegal model state transition without validating topics", async () => {
+  it("rejects mutations attached to read-only model intents", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
+        intent: "show-ui",
+        draftPatch: { ttl: 86400 },
+      },
+    });
+    const response = await postAssistant(assistantRequest("Show me the controls"), bindings);
+
+    expect(response.status).toBe(502);
+    expect(githubCalls).toHaveLength(0);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "assistant_turn_failure",
+        stage: "read-only-mutation",
+        intent: "show-ui",
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("ignores neutral optional fields materialized on a read-only intent", async () => {
+    const draft = { ...DEFAULT_FEED_DRAFT, source: "topics" as const, topics: ["css"] };
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "explain-capabilities",
+        draftPatch: {
+          topics: [],
+          username: null,
+          repoSelection: null,
+          format: "atom",
+          topicOperator: "or",
+        },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("What else can I create?"),
+        state: "edit-settings",
+        draft,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ state: "edit-settings", draft, feedUrl: null });
+  });
+
+  it("rejects an inconsistent client snapshot before invoking the model", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: {
           source: "topics",
           topics: ["css"],
@@ -650,7 +790,8 @@ describe("POST /api/assistant/turn", () => {
       bindings,
     );
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(400);
+    expect(run).not.toHaveBeenCalled();
     expect(githubCalls).toHaveLength(0);
   });
 
@@ -661,7 +802,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: { source: "topics", topics: ["not-a-real-topic"] },
       },
     });
@@ -682,7 +822,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "explain-capabilities",
-        proposedState: "choose-source",
         draftPatch: {},
       },
     });
@@ -690,12 +829,244 @@ describe("POST /api/assistant/turn", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.state).toBe("choose-source");
+    expect(payload.state).toBe("idle");
     expect(payload.feedUrl).toBeNull();
     expect(payload.showUi).toBe(false);
     expect(payload.message).toContain("GitHub topic");
     expect(run).toHaveBeenCalledOnce();
     expect(githubCalls).toHaveLength(0);
+  });
+
+  it("keeps a ready feed valid while answering a capability question", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings } = makeAssistantEnv({
+      aiResponse: {
+        intent: "explain-capabilities",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("What else can this app do?"),
+        state: "ready",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css"],
+          ttl: 86400,
+        },
+        ttlSelected: true,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: { source: "topics", topics: ["css"], ttl: 86400 },
+      issues: [],
+      showUi: true,
+      ttlSelected: true,
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("keeps a misplaced capability intent read-only inside repository selection", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "explain-capabilities",
+        draftPatch: {},
+      },
+    });
+    const draft = {
+      ...DEFAULT_FEED_DRAFT,
+      source: "starred" as const,
+      username: "octocat",
+    };
+    const response = await postAssistant(
+      {
+        ...assistantRequest("What are the available options?"),
+        state: "choose-repos",
+        draft,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft,
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("GitHub topic");
+    expect(run).toHaveBeenCalledOnce();
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("enters the starred username step after a capabilities turn", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "starred" },
+      },
+    });
+    const response = await postAssistant(
+      {
+        message: "Ok, I want to create a feed from my starred repositories",
+        state: "choose-source",
+        draft: DEFAULT_FEED_DRAFT,
+        issues: [],
+        ttlSelected: false,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
+      draft: { source: "starred", username: null, repoSelection: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("Which GitHub username should I use?");
+    expect(run).toHaveBeenCalledOnce();
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("asks for a username for the feed-of-my-starred-repos wording", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "starred" },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("I want to create a feed of my starred repos"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
+      draft: { source: "starred", username: null, repoSelection: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("Which GitHub username should I use?");
+    expect(run).toHaveBeenCalledOnce();
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("ignores an unsolicited repository action before a username is available", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "starred" },
+        repoSelectionAction: { kind: "first", count: 10 },
+      },
+    });
+    const response = await postAssistant(
+      assistantRequest("I want to create a feed from my starred repos"),
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "enter-username",
+      draft: { source: "starred", username: null, repoSelection: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("Which GitHub username should I use?");
+    expect(run).toHaveBeenCalledOnce();
+    expect(githubCalls).toHaveLength(0);
+  });
+
+  it("ignores an unsolicited positional action while applying a requested username", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { username: "octocat" },
+        repoSelectionAction: { kind: "first", count: 5 },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("octocat"),
+        state: "enter-username",
+        draft: { ...DEFAULT_FEED_DRAFT, source: "starred" },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat", repoSelection: null },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("Do you want all of their starred repositories");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a repository subset when the model returns an explicit all action", async () => {
+    server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "all" },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Include all starred repositories"),
+        state: "edit-settings",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+          repoSelection: { kind: "subset", repos: ["example/repo"] },
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: { source: "starred", username: "octocat", repoSelection: { kind: "all" } },
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("include all of @octocat's starred repositories");
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("lists current featured topics conversationally without revealing controls", async () => {
@@ -714,8 +1085,7 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "list-topics",
-        proposedState: "edit-topics",
-        draftPatch: { source: "topics" },
+        draftPatch: {},
       },
     });
     const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
@@ -723,8 +1093,8 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      state: "edit-topics",
-      draft: { source: "topics", topics: [] },
+      state: "idle",
+      draft: { source: null, topics: [] },
       issues: [],
       feedUrl: null,
       showUi: false,
@@ -740,8 +1110,7 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "list-topics",
-        proposedState: "edit-topics",
-        draftPatch: { source: "topics" },
+        draftPatch: {},
       },
     });
     const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
@@ -758,7 +1127,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "list-settings",
-        proposedState: "edit-settings",
         draftPatch: {},
       },
     });
@@ -786,7 +1154,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "list-settings",
-        proposedState: "edit-settings",
         draftPatch: {},
       },
     });
@@ -825,7 +1192,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "edit-topics",
         draftPatch: { source: "topics", topics: ["css", "javascript", "typescript"] },
       },
     });
@@ -850,16 +1216,15 @@ describe("POST /api/assistant/turn", () => {
 
   it("reveals trusted components for the current conversation state on request", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
+    const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "show-ui",
-        proposedState: "edit-topics",
         draftPatch: {},
       },
     });
     const response = await postAssistant(
       {
-        ...assistantRequest("Show UI"),
+        ...assistantRequest("Show me the interface"),
         state: "edit-topics",
         draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
         issues: ["Include at least one topic."],
@@ -877,14 +1242,126 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("opens editable settings instead of the ready summary when UI is requested for a complete topic feed", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
+      aiResponse: {
+        intent: "show-ui",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Show UI"),
+        state: "ready",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css", "javascript"],
+          ttl: 86400,
+        },
+        ttlSelected: true,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: { source: "topics", topics: ["css", "javascript"], ttl: 86400 },
+      issues: [],
+      feedUrl: null,
+      showUi: true,
+      ttlSelected: true,
+    });
+    expect(githubCalls).toHaveLength(0);
+    expect(run).not.toHaveBeenCalled();
+    expect(clientLimit).not.toHaveBeenCalled();
+    expect(networkLimit).not.toHaveBeenCalled();
+  });
+
+  it("hides the interface without discarding a completed feed", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
+      aiResponse: {
+        intent: "show-ui",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("hide ui"),
+        state: "edit-settings",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css", "javascript"],
+          ttl: 86400,
+        },
+        ttlSelected: true,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      draft: { source: "topics", topics: ["css", "javascript"], ttl: 86400 },
+      message: "I've hidden the feed interface.",
+      issues: [],
+      showUi: false,
+      ttlSelected: true,
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+    expect(githubCalls).toHaveLength(0);
+    expect(run).not.toHaveBeenCalled();
+    expect(clientLimit).not.toHaveBeenCalled();
+    expect(networkLimit).not.toHaveBeenCalled();
+  });
+
+  it("uses the model's hide UI intent for natural-language variants", async () => {
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "hide-ui",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Please close the controls for now"),
+        state: "edit-settings",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "topics",
+          topics: ["css"],
+        },
+        ttlSelected: true,
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "ready",
+      message: "I've hidden the feed interface.",
+      showUi: false,
+      ttlSelected: true,
+    });
+    expect(payload.feedUrl).toContain("/feed/");
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("reveals the username field when UI is requested for a starred draft", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
+    const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "show-ui",
-        proposedState: "recoverable-error",
         draftPatch: {},
       },
     });
@@ -907,14 +1384,54 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("reveals the repository picker when the model identifies repository discovery", async () => {
+    const githubCalls = recordGitHubCalls();
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "list-repositories",
+        draftPatch: {},
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Please list the repositories"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: null,
+      },
+      issues: [],
+      feedUrl: null,
+      showUi: true,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("Here are @octocat's starred repositories");
+    expect(githubCalls).toHaveLength(0);
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("reveals the repository picker when UI is requested for a starred username", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
+    const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "show-ui",
-        proposedState: "recoverable-error",
         draftPatch: {},
       },
     });
@@ -937,6 +1454,7 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("asks for topics without revealing controls for an incomplete topic request", async () => {
@@ -944,7 +1462,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "edit-topics",
         draftPatch: { source: "topics", topics: [] },
       },
     });
@@ -975,17 +1492,12 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: { topics: ["typescript"], ttl: 86400 },
       },
     });
     const response = await postAssistant(
       {
         message: "Use TypeScript instead and update every 24 hours",
-        history: [
-          { role: "user", content: "Create a CSS feed" },
-          { role: "assistant", content: "Your topic feed is ready." },
-        ],
         state: "ready",
         draft: {
           ...DEFAULT_FEED_DRAFT,
@@ -1021,7 +1533,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: {},
       },
     });
@@ -1064,8 +1575,8 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "unsupported",
-        proposedState: "edit-settings",
         draftPatch: { source: "topics", topics: ["css"] },
+        unsupportedReason: "interval",
       },
     });
     const response = await postAssistant(
@@ -1092,7 +1603,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: { source: "topics", topics: ["css"] },
       },
     });
@@ -1157,6 +1667,27 @@ describe("POST /api/assistant/turn", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
+  it("retains Workers AI error details in diagnostics while keeping the public error generic", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const aiError = Object.assign(new Error("Account limited"), { code: 3036, status: 429 });
+    const { bindings, run } = makeAssistantEnv({ aiError });
+    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: "Assistant response was invalid" });
+    expect(run).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith({
+      event: "assistant_turn_failure",
+      stage: "workers-ai",
+      model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      errorName: "Error",
+      errorMessage: "Account limited",
+      errorCode: 3036,
+      errorStatus: 429,
+    });
+    consoleError.mockRestore();
+  });
+
   const octocatUserHandler = ({ found = true }: { found?: boolean } = {}) =>
     http.get("https://api.github.com/users/octocat", () =>
       found
@@ -1182,7 +1713,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: { source: "starred" },
       },
     });
@@ -1204,12 +1734,99 @@ describe("POST /api/assistant/turn", () => {
     expect(githubCalls).toHaveLength(0);
   });
 
+  it("retains a named repository subset until the username is available", async () => {
+    const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+    const firstTurn = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { source: "starred" },
+      },
+    });
+    const firstResponse = await postAssistant(
+      assistantRequest(
+        "I want to create a feed from the following starred repos: wrapdotdev/warp and mattpocock/skills",
+      ),
+      firstTurn.bindings,
+    );
+    const firstPayload = await firstResponse.json();
+
+    expect(firstResponse.status).toBe(200);
+    expect(firstPayload).toMatchObject({
+      state: "enter-username",
+      draft: {
+        source: "starred",
+        username: null,
+        repoSelection: { kind: "subset", repos: requestedRepos },
+      },
+      showUi: false,
+    });
+    expect(firstPayload.message).toContain("Which GitHub username");
+
+    server.use(
+      http.get("https://api.github.com/users/schalkneethling", () =>
+        HttpResponse.json({ login: "schalkneethling" }),
+      ),
+      http.get("https://api.github.com/users/schalkneethling/starred", () =>
+        HttpResponse.json(
+          requestedRepos.map((fullName) => ({
+            ...repoFixture,
+            full_name: fullName,
+            name: fullName.split("/")[1],
+            owner: { login: fullName.split("/")[0] },
+          })),
+        ),
+      ),
+    );
+    const secondTurn = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: { username: "schalkneethling" },
+        repoSelectionAction: { kind: "all" },
+      },
+    });
+    const secondResponse = await postAssistant(
+      {
+        ...assistantRequest("schalkneethling"),
+        state: "enter-username",
+        draft: firstPayload.draft,
+      },
+      secondTurn.bindings,
+    );
+    const secondPayload = await secondResponse.json();
+
+    expect(secondResponse.status).toBe(200);
+    expect(secondPayload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        source: "starred",
+        username: "schalkneethling",
+        repoSelection: { kind: "subset", repos: requestedRepos },
+      },
+      showUi: false,
+      ttlSelected: false,
+    });
+    expect(secondPayload.message).toContain("I selected 2 repositories");
+    const [, secondTurnInput] = secondTurn.run.mock.calls[0] as [
+      string,
+      { messages: Array<{ role: string; content: string }> },
+    ];
+    expect(JSON.parse(secondTurnInput.messages[1].content)).toMatchObject({
+      currentTurn: {
+        draft: {
+          source: "starred",
+          username: null,
+          repoSelection: { kind: "subset", repos: requestedRepos },
+        },
+        requiredDecision: "github-username",
+      },
+    });
+  });
+
   it("validates a username and asks whether to use all starred repositories", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1231,12 +1848,60 @@ describe("POST /api/assistant/turn", () => {
     expect(payload.message).toContain("all of their starred repositories or a specific selection");
   });
 
+  it("selects the first repositories from trusted GitHub order", async () => {
+    const repos = Array.from({ length: 12 }, (_, index) => ({
+      ...repoFixture,
+      full_name: `example/repo-${index + 1}`,
+      name: `repo-${index + 1}`,
+    }));
+    server.use(octocatStarsHandler(repos));
+    const { bindings, run } = makeAssistantEnv({
+      aiResponse: {
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "first", count: 10 },
+      },
+    });
+    const response = await postAssistant(
+      {
+        ...assistantRequest("Please select the first 10"),
+        state: "choose-repos",
+        draft: {
+          ...DEFAULT_FEED_DRAFT,
+          source: "starred",
+          username: "octocat",
+        },
+      },
+      bindings,
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: {
+          kind: "subset",
+          repos: repos.slice(0, 10).map((repo) => repo.full_name),
+        },
+      },
+      issues: [],
+      feedUrl: null,
+      showUi: true,
+      ttlSelected: false,
+    });
+    expect(payload.message).toContain("I selected 10 repositories");
+    expect(payload.message).toContain("choose how often the feed should update");
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("reports an unknown GitHub username", async () => {
     server.use(octocatUserHandler({ found: false }));
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1260,7 +1925,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1280,7 +1944,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: {
           source: "starred",
           username: "octocat",
@@ -1322,7 +1985,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: {
           source: "starred",
           username: "octocat",
@@ -1357,7 +2019,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: {
           source: "starred",
           username: "octocat",
@@ -1386,10 +2047,9 @@ describe("POST /api/assistant/turn", () => {
 
   it("lists update frequencies for a starred draft in the repository state", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
+    const { bindings, run } = makeAssistantEnv({
       aiResponse: {
         intent: "list-settings",
-        proposedState: "edit-settings",
         draftPatch: {},
       },
     });
@@ -1417,14 +2077,20 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.message).toContain("1 hour, 6 hours, 24 hours, or 1 week");
     expect(githubCalls).toHaveLength(0);
+    const [, input] = run.mock.calls[0] as [
+      string,
+      { messages: Array<{ role: string; content: string }> },
+    ];
+    expect(JSON.parse(input.messages[1].content)).toMatchObject({
+      currentTurn: { requiredDecision: "feed-settings" },
+    });
   });
 
-  it("keeps an all-starred feed in choose-repos until a frequency is selected", async () => {
+  it("advances an all-starred feed to settings until a frequency is selected", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "choose-repos",
         draftPatch: {
           source: "starred",
           username: "octocat",
@@ -1440,7 +2106,7 @@ describe("POST /api/assistant/turn", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toMatchObject({
-      state: "choose-repos",
+      state: "edit-settings",
       draft: { repoSelection: { kind: "all" } },
       feedUrl: null,
       ttlSelected: false,
@@ -1453,8 +2119,8 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "unsupported",
-        proposedState: "choose-repos",
         draftPatch: { source: "starred", username: "octocat" },
+        unsupportedReason: "interval",
       },
     });
     const response = await postAssistant(
@@ -1481,7 +2147,6 @@ describe("POST /api/assistant/turn", () => {
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "enter-username",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1496,13 +2161,11 @@ describe("POST /api/assistant/turn", () => {
     });
   });
 
-  it("rejects a starred ready state proposed without a selection", async () => {
+  it("derives repository selection when a starred request has no selection", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const githubCalls = recordGitHubCalls();
     const { bindings } = makeAssistantEnv({
       aiResponse: {
         intent: "create-or-update-feed",
-        proposedState: "ready",
         draftPatch: { source: "starred", username: "octocat" },
       },
     });
@@ -1511,8 +2174,14 @@ describe("POST /api/assistant/turn", () => {
       bindings,
     );
 
-    expect(response.status).toBe(502);
-    expect(githubCalls).toHaveLength(0);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "choose-repos",
+      draft: { source: "starred", username: "octocat", repoSelection: null },
+      feedUrl: null,
+    });
   });
 });
 

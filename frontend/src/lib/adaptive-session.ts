@@ -1,17 +1,19 @@
 import {
   DEFAULT_FEED_DRAFT,
+  editableStateForDraft,
   type AdaptiveState,
   type AssistantHistoryTurn,
   type AssistantTurnResponse,
   type FeedDraft,
   isAdaptiveState,
   isFeedDraft,
-  isLegalTransition,
   isSecureFeedUrl,
+  isRepoSelectionComplete,
+  isStateConsistentWithDraft,
 } from "./assistant";
 
 export const ADAPTIVE_SESSION_STORAGE_KEY = "ossreleasefeed:adaptive-session";
-export const ADAPTIVE_SESSION_VERSION = 3;
+export const ADAPTIVE_SESSION_VERSION = 4;
 export const ADAPTIVE_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 export const TRANSCRIPT_MAX_TURNS = 12;
 export const TRANSCRIPT_MAX_CHARACTERS = 6_000;
@@ -22,6 +24,7 @@ const MAX_ISSUES = 5;
 export type InteractionMode = "guided" | "ask";
 
 export type AdaptiveWorkspace = {
+  revision: number;
   adaptiveState: AdaptiveState;
   draft: FeedDraft;
   feedUrl: string | null;
@@ -35,6 +38,7 @@ export type AdaptiveWorkspace = {
 };
 
 export const DEFAULT_ADAPTIVE_WORKSPACE: AdaptiveWorkspace = {
+  revision: 0,
   adaptiveState: "idle",
   draft: DEFAULT_FEED_DRAFT,
   feedUrl: null,
@@ -60,7 +64,12 @@ export type AdaptiveAction =
   | { type: "set-activity"; activityType: FeedDraft["activityType"] }
   | { type: "set-ttl"; ttl: FeedDraft["ttl"] }
   | { type: "set-feed-url"; feedUrl: string }
-  | { type: "assistant-result"; userMessage: string; response: AssistantTurnResponse }
+  | {
+      type: "assistant-result";
+      baseRevision: number;
+      userMessage: string;
+      response: AssistantTurnResponse;
+    }
   | { type: "reset" };
 
 type PersistedAdaptiveWorkspace = AdaptiveWorkspace & {
@@ -110,18 +119,6 @@ export const capTranscript = (
   return kept.reverse();
 };
 
-const stateForDraftChange = (draft: FeedDraft): AdaptiveState => {
-  if (draft.source === null) {
-    return "choose-source";
-  }
-
-  if (draft.source === "starred") {
-    return draft.username === null ? "enter-username" : "choose-repos";
-  }
-
-  return draft.topics.length > 0 ? "edit-settings" : "edit-topics";
-};
-
 const updateDraft = (
   workspace: AdaptiveWorkspace,
   patch: Partial<FeedDraft>,
@@ -144,7 +141,8 @@ const updateDraft = (
 
   return {
     ...workspace,
-    adaptiveState: stateForDraftChange(draft),
+    revision: workspace.revision + 1,
+    adaptiveState: editableStateForDraft(draft),
     draft,
     feedUrl: null,
     issues: [],
@@ -176,16 +174,26 @@ export const adaptiveWorkspaceReducer = (
       return action.workspace;
     }
     case "select-mode": {
-      return { ...workspace, selectedMode: action.mode };
+      return { ...workspace, revision: workspace.revision + 1, selectedMode: action.mode };
     }
     case "start-guided": {
-      return { ...workspace, builderStarted: true, selectedMode: "guided" };
+      return {
+        ...workspace,
+        revision: workspace.revision + 1,
+        builderStarted: true,
+        selectedMode: "guided",
+      };
     }
     case "fallback-guided": {
-      return { ...workspace, builderStarted: true, selectedMode: "guided" };
+      return {
+        ...workspace,
+        revision: workspace.revision + 1,
+        builderStarted: true,
+        selectedMode: "guided",
+      };
     }
     case "set-composer": {
-      return { ...workspace, composer: action.composer };
+      return { ...workspace, revision: workspace.revision + 1, composer: action.composer };
     }
     case "set-source": {
       if (action.source === "topics") {
@@ -215,7 +223,7 @@ export const adaptiveWorkspaceReducer = (
 
       return updateDraft(workspace, {
         username: username === "" ? null : username,
-        repoSelection: null,
+        repoSelection: workspace.draft.username === null ? workspace.draft.repoSelection : null,
       });
     }
     case "set-repo-selection": {
@@ -230,20 +238,32 @@ export const adaptiveWorkspaceReducer = (
     case "set-feed-url": {
       return {
         ...workspace,
+        revision: workspace.revision + 1,
         adaptiveState: "ready",
         feedUrl: action.feedUrl,
         issues: [],
         showUi: true,
-        ttlSelected: workspace.ttlSelected,
+        ttlSelected: true,
       };
     }
     case "assistant-result": {
-      if (!isLegalTransition(workspace.adaptiveState, action.response.state)) {
+      if (workspace.revision !== action.baseRevision) {
+        return workspace;
+      }
+
+      if (
+        !isStateConsistentWithDraft(
+          action.response.state,
+          action.response.draft,
+          action.response.ttlSelected,
+        )
+      ) {
         return { ...workspace, adaptiveState: "recoverable-error", feedUrl: null };
       }
 
       return {
         ...workspace,
+        revision: workspace.revision + 1,
         adaptiveState: action.response.state,
         draft: action.response.draft,
         feedUrl: action.response.feedUrl,
@@ -255,7 +275,11 @@ export const adaptiveWorkspaceReducer = (
       };
     }
     case "reset": {
-      return { ...DEFAULT_ADAPTIVE_WORKSPACE, selectedMode: workspace.selectedMode };
+      return {
+        ...DEFAULT_ADAPTIVE_WORKSPACE,
+        revision: workspace.revision + 1,
+        selectedMode: workspace.selectedMode,
+      };
     }
   }
 };
@@ -269,50 +293,22 @@ const isStateConsistentWithWorkspace = (
   feedUrl: string | null,
   showUi: boolean,
   ttlSelected: boolean,
-  selectedMode: InteractionMode,
 ): boolean => {
+  if (!isStateConsistentWithDraft(state, draft, ttlSelected)) {
+    return false;
+  }
+
   if (feedUrl !== null) {
     const completeTopics = draft.source === "topics" && draft.topics.length > 0;
     const completeStarred =
-      draft.source === "starred" && draft.username !== null && draft.repoSelection !== null;
+      draft.source === "starred" &&
+      draft.username !== null &&
+      isRepoSelectionComplete(draft.repoSelection);
 
-    return (
-      state === "ready" &&
-      (completeTopics || completeStarred) &&
-      showUi &&
-      (selectedMode === "guided" || ttlSelected)
-    );
+    return state === "ready" && (completeTopics || completeStarred) && ttlSelected;
   }
 
-  if (state === "ready") {
-    return false;
-  }
-
-  if (state === "idle") {
-    return draft.source === null;
-  }
-
-  if (state === "recoverable-error") {
-    return true;
-  }
-
-  if (state === "choose-source") {
-    return true;
-  }
-
-  if (draft.source === null) {
-    return false;
-  }
-
-  if (draft.source === "starred") {
-    return state === "enter-username" || state === "choose-repos";
-  }
-
-  if (draft.topics.length === 0) {
-    return state === "edit-topics";
-  }
-
-  return state === "edit-topics" || state === "edit-settings";
+  return state !== "ready";
 };
 
 const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAdaptiveWorkspace => {
@@ -340,6 +336,9 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
 
   if (
     typeof value.builderStarted !== "boolean" ||
+    typeof value.revision !== "number" ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0 ||
     typeof value.composer !== "string" ||
     typeof value.showUi !== "boolean" ||
     typeof value.ttlSelected !== "boolean"
@@ -354,7 +353,6 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
       value.feedUrl,
       value.showUi,
       value.ttlSelected,
-      value.selectedMode,
     )
   ) {
     return false;
@@ -383,6 +381,7 @@ export const parsePersistedWorkspace = (
     }
 
     return {
+      revision: parsed.revision,
       adaptiveState: parsed.adaptiveState,
       draft: parsed.draft,
       feedUrl: parsed.feedUrl,

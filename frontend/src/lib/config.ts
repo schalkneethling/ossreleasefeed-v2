@@ -1,3 +1,5 @@
+import { canonicalizeJson } from "../../../shared/canonical-json";
+
 export type FeedConfig =
   | {
       source: "topics";
@@ -18,20 +20,6 @@ export type FeedConfig =
 
 const encoder = new TextEncoder();
 
-const sortValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return [...value].sort().map(sortValue);
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => [k, sortValue(v)]),
-    );
-  }
-  return value;
-};
-
 const bytesToBase64 = (bytes: Uint8Array): string => {
   let binary = "";
   bytes.forEach((byte) => (binary += String.fromCharCode(byte)));
@@ -39,7 +27,7 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
 };
 
 export const encodeFeedConfig = (config: FeedConfig): string => {
-  const sorted = sortValue(config);
+  const sorted = canonicalizeJson(config);
   const json = JSON.stringify(sorted);
   const base64 = bytesToBase64(encoder.encode(json));
   return base64.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");

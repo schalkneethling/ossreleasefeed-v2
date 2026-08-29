@@ -3,7 +3,7 @@ import { AskFeed } from "./components/AskFeed";
 import { Builder } from "./components/Builder";
 import { Hero } from "./components/Hero";
 import { useInteractionCycle } from "./hooks/useInteractionCycle";
-import { fetchExperiments, getExperimentKey } from "./lib/assistant";
+import { fetchExperiments, getExperimentKey, isRepoSelectionComplete } from "./lib/assistant";
 import {
   adaptiveWorkspaceReducer,
   clearAdaptiveWorkspace,
@@ -116,17 +116,23 @@ export function App() {
 
   const generateFeedUrl = () => {
     const { draft } = workspace;
+    const { repoSelection } = draft;
 
     if (draft.source === "topics" && draft.topics.length > 0) {
       generateTopicUrl();
       return;
     }
 
-    if (draft.source === "starred" && draft.username !== null && draft.repoSelection !== null) {
+    if (
+      draft.source === "starred" &&
+      draft.username !== null &&
+      repoSelection !== null &&
+      isRepoSelectionComplete(repoSelection)
+    ) {
       const token = encodeFeedConfig({
         source: "starred",
         username: draft.username,
-        repos: draft.repoSelection.kind === "subset" ? draft.repoSelection.repos : null,
+        repos: repoSelection.kind === "subset" ? repoSelection.repos : null,
         activityType: draft.activityType,
         ttl: draft.ttl,
         format: "atom",
@@ -216,10 +222,11 @@ export function App() {
             draft={workspace.draft}
             feedUrl={workspace.feedUrl}
             issues={workspace.issues}
+            revision={workspace.revision}
             showUi={workspace.showUi}
             onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
-            onAssistantResult={(userMessage, response) =>
-              dispatch({ type: "assistant-result", userMessage, response })
+            onAssistantResult={(userMessage, response, baseRevision) =>
+              dispatch({ type: "assistant-result", baseRevision, userMessage, response })
             }
             onComposerChange={(composer) => dispatch({ type: "set-composer", composer })}
             onGenerate={generateFeedUrl}
@@ -244,10 +251,15 @@ export function App() {
               draft={workspace.draft}
               feedUrl={workspace.feedUrl}
               onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
+              onGenerateStarredUrl={generateFeedUrl}
               onGenerateTopicUrl={generateTopicUrl}
+              onRepoSelectionChange={(repoSelection) =>
+                dispatch({ type: "set-repo-selection", repoSelection })
+              }
               onSourceChange={(source) => dispatch({ type: "set-source", source })}
               onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
               onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
+              onUsernameChange={(username) => dispatch({ type: "set-username", username })}
             />
           </div>
         ) : null}

@@ -30,8 +30,10 @@ export const UrlStringSchema = Schema.String.pipe(
   }),
 );
 
+export const REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+
 export const RepoFullNameSchema = Schema.String.pipe(
-  Schema.pattern(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, {
+  Schema.pattern(REPO_FULL_NAME_PATTERN, {
     message: () => "Expected an owner/repo value",
   }),
 );

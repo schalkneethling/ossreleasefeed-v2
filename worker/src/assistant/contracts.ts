@@ -19,8 +19,10 @@ export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
   "explain-capabilities",
   "list-topics",
+  "list-repositories",
   "list-settings",
   "show-ui",
+  "hide-ui",
   "unsupported",
 ] as const;
 
@@ -36,29 +38,19 @@ const FEED_DRAFT_KEYS = [
   "format",
   "topicOperator",
 ] as const;
-const ASSISTANT_REQUEST_KEYS = [
-  "message",
-  "history",
-  "state",
-  "draft",
-  "issues",
-  "ttlSelected",
+const ASSISTANT_REQUEST_KEYS = ["message", "state", "draft", "issues", "ttlSelected"] as const;
+const MODEL_DECISION_KEYS = [
+  "intent",
+  "draftPatch",
+  "repoSelectionAction",
+  "unsupportedReason",
 ] as const;
-const HISTORY_TURN_KEYS = ["role", "content"] as const;
-const MODEL_DECISION_KEYS = ["intent", "proposedState", "draftPatch", "framing"] as const;
 const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
 
 export type AssistantIntent = (typeof ASSISTANT_INTENTS)[number];
-export type AssistantRole = "user" | "assistant";
-
-export type AssistantHistoryTurn = {
-  role: AssistantRole;
-  content: string;
-};
 
 export type AssistantTurnRequest = {
   message: string;
-  history: AssistantHistoryTurn[];
   state: AdaptiveState;
   draft: FeedDraft;
   issues: string[];
@@ -75,13 +67,22 @@ export type AssistantTurnResponse = {
   ttlSelected: boolean;
 };
 
-export type ModelDraftPatch = Partial<FeedDraft>;
+export type ModelDraftPatch = Omit<Partial<FeedDraft>, "source"> & {
+  source?: Exclude<FeedDraft["source"], null>;
+};
+
+export type ModelRepoSelectionAction =
+  | { kind: "all" }
+  | {
+      kind: "first";
+      count: number;
+    };
 
 export type ModelDecision = {
   intent: AssistantIntent;
-  proposedState: AdaptiveState;
   draftPatch: ModelDraftPatch;
-  framing?: string;
+  repoSelectionAction?: ModelRepoSelectionAction;
+  unsupportedReason?: "interval" | "request";
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -128,7 +129,9 @@ const isRepoSelection = (value: unknown): value is FeedDraft["repoSelection"] =>
   return (
     value.kind === "subset" &&
     hasAllowedKeys(value, ["kind", "repos"], ["kind", "repos"]) &&
-    isStringArray(value.repos, 25)
+    isStringArray(value.repos, 25) &&
+    value.repos.length > 0 &&
+    new Set(value.repos).size === value.repos.length
   );
 };
 
@@ -162,18 +165,6 @@ export const isFeedDraft = (value: unknown): value is FeedDraft => {
   );
 };
 
-const isAssistantHistoryTurn = (value: unknown): value is AssistantHistoryTurn => {
-  if (!isRecord(value) || !hasAllowedKeys(value, HISTORY_TURN_KEYS, HISTORY_TURN_KEYS)) {
-    return false;
-  }
-
-  return (
-    (value.role === "user" || value.role === "assistant") &&
-    typeof value.content === "string" &&
-    value.content.length <= 1_000
-  );
-};
-
 export const isAssistantTurnRequest = (value: unknown): value is AssistantTurnRequest => {
   if (!isRecord(value) || !hasAllowedKeys(value, ASSISTANT_REQUEST_KEYS, ASSISTANT_REQUEST_KEYS)) {
     return false;
@@ -183,9 +174,6 @@ export const isAssistantTurnRequest = (value: unknown): value is AssistantTurnRe
     typeof value.message === "string" &&
     value.message.length >= 1 &&
     value.message.length <= 1_000 &&
-    Array.isArray(value.history) &&
-    value.history.length <= 6 &&
-    value.history.every(isAssistantHistoryTurn) &&
     isAdaptiveState(value.state) &&
     isFeedDraft(value.draft) &&
     isStringArray(value.issues, 5) &&
@@ -198,7 +186,7 @@ const isModelDraftPatch = (value: unknown): value is ModelDraftPatch => {
     return false;
   }
 
-  if ("source" in value && value.source !== null && !isOneOf(value.source, FEED_SOURCES)) {
+  if ("source" in value && !isOneOf(value.source, FEED_SOURCES)) {
     return false;
   }
 
@@ -226,21 +214,61 @@ const isModelDraftPatch = (value: unknown): value is ModelDraftPatch => {
     return false;
   }
 
-  return !("topicOperator" in value) || value.topicOperator === "or";
+  if ("topicOperator" in value && value.topicOperator !== "or") {
+    return false;
+  }
+
+  const hasTopics = Array.isArray(value.topics) && value.topics.length > 0;
+  const hasStarredFields =
+    ("username" in value && value.username !== null) ||
+    ("repoSelection" in value && value.repoSelection !== null);
+
+  if (hasTopics && hasStarredFields) {
+    return false;
+  }
+
+  if (value.source === "topics" && hasStarredFields) {
+    return false;
+  }
+
+  return value.source !== "starred" || !hasTopics;
+};
+
+const isModelRepoSelectionAction = (value: unknown): value is ModelRepoSelectionAction => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.kind === "all") {
+    return hasAllowedKeys(value, ["kind"], ["kind"]);
+  }
+
+  return (
+    hasAllowedKeys(value, ["kind", "count"], ["kind", "count"]) &&
+    value.kind === "first" &&
+    typeof value.count === "number" &&
+    Number.isInteger(value.count) &&
+    value.count >= 1 &&
+    value.count <= 25
+  );
 };
 
 export const isModelDecision = (value: unknown): value is ModelDecision => {
+  if (!isRecord(value) || !hasAllowedKeys(value, MODEL_DECISION_KEYS, ["intent", "draftPatch"])) {
+    return false;
+  }
+
   if (
-    !isRecord(value) ||
-    !hasAllowedKeys(value, MODEL_DECISION_KEYS, ["intent", "proposedState", "draftPatch"])
+    !isOneOf(value.intent, ASSISTANT_INTENTS) ||
+    !isModelDraftPatch(value.draftPatch) ||
+    ("repoSelectionAction" in value && !isModelRepoSelectionAction(value.repoSelectionAction))
   ) {
     return false;
   }
 
-  return (
-    isOneOf(value.intent, ASSISTANT_INTENTS) &&
-    isAdaptiveState(value.proposedState) &&
-    isModelDraftPatch(value.draftPatch) &&
-    (!("framing" in value) || (typeof value.framing === "string" && value.framing.length <= 240))
-  );
+  if (value.intent === "unsupported") {
+    return value.unsupportedReason === "interval" || value.unsupportedReason === "request";
+  }
+
+  return !("unsupportedReason" in value);
 };

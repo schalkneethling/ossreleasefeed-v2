@@ -1,11 +1,18 @@
-import { createElement, useEffect, useId, useState, type ComponentType } from "react";
-import { fetchStarredRepos, type Repo } from "../lib/api";
+import { createElement, useEffect, useId, useRef, useState, type ComponentType } from "react";
 import { useDebounce } from "../hooks/useDebounce";
-import type { AdaptiveState, FeedDraft, FeedTtl } from "../lib/assistant";
+import { fetchStarredRepos, type Repo } from "../lib/api";
+import {
+  isRepoSelectionComplete,
+  type AdaptiveState,
+  type FeedDraft,
+  type FeedTtl,
+} from "../lib/assistant";
 import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { FeedRecipe } from "./FeedRecipe";
 import { RepoPicker } from "./RepoPicker";
 import { TopicEditor } from "./TopicEditor";
+
+const REPOSITORY_LOOKUP_DEBOUNCE_MS = 450;
 
 type RegistryProps = {
   active: boolean;
@@ -89,27 +96,42 @@ const UsernameChoices = ({ draft, onUsernameChange }: RegistryProps) => {
   );
 };
 
-const USERNAME_DEBOUNCE_MS = 450;
-
 const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) => {
   const titleId = useId();
   const [repos, setRepos] = useState<Repo[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const username = draft.username;
-  const debouncedUsername = useDebounce(username, USERNAME_DEBOUNCE_MS);
+  const lookupControllerRef = useRef<AbortController | null>(null);
+  const username = (draft.username ?? "").trim();
+  const currentUsernameRef = useRef(username);
+  const debouncedUsername = useDebounce(username, REPOSITORY_LOOKUP_DEBOUNCE_MS);
+  currentUsernameRef.current = username;
 
   useEffect(() => {
-    if (!active || debouncedUsername === null) {
+    lookupControllerRef.current?.abort();
+    lookupControllerRef.current = null;
+    setRepos([]);
+    setStatus("idle");
+  }, [active, username]);
+
+  useEffect(() => {
+    if (!active || !debouncedUsername) {
       setRepos([]);
       setStatus("idle");
       return;
     }
 
     const controller = new AbortController();
+    lookupControllerRef.current = controller;
+    const isCurrentLookup = () =>
+      !controller.signal.aborted && currentUsernameRef.current === debouncedUsername;
     setStatus("loading");
 
     fetchStarredRepos(debouncedUsername, controller.signal)
       .then((fetched) => {
+        if (!isCurrentLookup()) {
+          return;
+        }
+
         setRepos(fetched);
         setStatus("loaded");
       })
@@ -119,7 +141,13 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+
+      if (lookupControllerRef.current === controller) {
+        lookupControllerRef.current = null;
+      }
+    };
   }, [active, debouncedUsername]);
 
   if (draft.repoSelection?.kind === "all") {
@@ -131,7 +159,12 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         <p className="adaptive-stage__note">
           Including all of @{username}&rsquo;s starred repositories.
         </p>
-        <button className="btn-secondary" onClick={() => onRepoSelectionChange(null)} type="button">
+        <button
+          className="btn-secondary"
+          disabled={status !== "loaded" || repos.length === 0}
+          onClick={() => onRepoSelectionChange(null)}
+          type="button"
+        >
           Choose specific repositories
         </button>
       </section>
@@ -154,8 +187,10 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         </p>
       ) : (
         <RepoPicker
-          key={username ?? "none"}
-          onSelectionChange={(next) => onRepoSelectionChange({ kind: "subset", repos: [...next] })}
+          key={username || "none"}
+          onSelectionChange={(next) =>
+            onRepoSelectionChange(next.size > 0 ? { kind: "subset", repos: [...next] } : null)
+          }
           repos={repos}
           selectedRepos={selectedRepos}
         />
@@ -163,6 +198,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
       <p className="adaptive-stage__note">Prefer every starred repository instead?</p>
       <button
         className="btn-secondary"
+        disabled={status !== "loaded" || repos.length === 0}
         onClick={() => onRepoSelectionChange({ kind: "all" })}
         type="button"
       >
@@ -191,9 +227,7 @@ const Settings = ({
   ttlSelected,
 }: RegistryProps) => {
   const selectionMissing =
-    draft.source === "starred" &&
-    (draft.repoSelection === null ||
-      (draft.repoSelection.kind === "subset" && draft.repoSelection.repos.length === 0));
+    draft.source === "starred" && !isRepoSelectionComplete(draft.repoSelection);
 
   return (
     <FeedConfigPanel
@@ -272,6 +306,14 @@ const componentsForState = (
   }
 
   if (state === "edit-settings") {
+    if (draft.source === "topics") {
+      topicComponents.push("topic-choices");
+    }
+
+    if (draft.source === "starred") {
+      topicComponents.push("username-choices", "repo-choices");
+    }
+
     topicComponents.push("settings");
   }
 
