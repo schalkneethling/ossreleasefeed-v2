@@ -86,6 +86,7 @@ export function AskFeed({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const experimentKeyRef = useRef(getExperimentKey());
   const postSubmitFocusRef = useRef<PostSubmitFocus>(null);
+  const revisionRef = useRef(revision);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(REQUEST_TIMEOUT_MS);
   const characterCount = composer.length;
   const charactersRemaining = ASSISTANT_MESSAGE_LIMIT - characterCount;
@@ -98,6 +99,7 @@ export function AskFeed({
     : submitting
       ? "Interpreting and validating your request"
       : lastAnnouncement;
+  revisionRef.current = revision;
 
   useEffect(() => {
     if (!active) {
@@ -168,6 +170,10 @@ export function AskFeed({
         return;
       }
 
+      if (revisionRef.current !== baseRevision) {
+        return;
+      }
+
       onAssistantResult(trimmed, response, baseRevision);
       postSubmitFocusRef.current =
         response.state === "ready" && response.feedUrl !== null ? "result" : "composer";
@@ -202,7 +208,11 @@ export function AskFeed({
         "Ask mode could not finish that request. You can retry or continue with the guided builder.",
       );
     } finally {
-      if (!controller.signal.aborted && postSubmitFocusRef.current === null) {
+      if (
+        !controller.signal.aborted &&
+        revisionRef.current === baseRevision &&
+        postSubmitFocusRef.current === null
+      ) {
         postSubmitFocusRef.current = "composer";
       }
       setSubmitting(false);

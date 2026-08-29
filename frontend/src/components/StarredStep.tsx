@@ -59,6 +59,9 @@ export function StarredStep({
 
   useEffect(() => {
     lookupControllerRef.current?.abort();
+    lookupControllerRef.current = null;
+    setUsernameStatus("idle");
+    setRepos([]);
   }, [active, username]);
 
   // Validate username and fetch repos on debounced change

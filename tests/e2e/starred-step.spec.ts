@@ -130,6 +130,30 @@ test.describe("repo list", () => {
     expect(count).toBeLessThan(25);
   });
 
+  test("clears stale repositories before looking up a changed username", async ({ page }) => {
+    let nextUsernameRepoCalls = 0;
+    await setupValidUser(page);
+    await page.route("**/api/users/validate/next-user", (route) =>
+      route.fulfill({ json: { exists: true, username: "next-user", hasStars: true } }),
+    );
+    await page.route("**/api/starred/next-user", (route) => {
+      nextUsernameRepoCalls += 1;
+
+      return route.fulfill({ json: [makeRepo(30)] });
+    });
+    await gotoStarredStep(page);
+
+    const username = page.getByRole("textbox", { name: /github username/i });
+    await username.fill("octocat");
+    await expect(page.getByText("owner/repo-1", { exact: true })).toBeVisible({ timeout: 2000 });
+
+    await username.fill("next-user");
+    await expect(page.getByText("owner/repo-1", { exact: true })).toHaveCount(0);
+    expect(nextUsernameRepoCalls).toBe(0);
+    await expect(page.getByText("owner/repo-30", { exact: true })).toBeVisible({ timeout: 2000 });
+    expect(nextUsernameRepoCalls).toBe(1);
+  });
+
   test("'Deselect all' clears all selections", async ({ page }) => {
     await setupValidUser(page);
     await gotoStarredStep(page);

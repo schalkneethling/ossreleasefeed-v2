@@ -158,7 +158,7 @@ Use create-or-update-feed for a requested feed change:
 - If the current draft already contains a repository subset and the user asks to keep, use, or refer back to those previously mentioned or selected repositories, return an empty draftPatch and no repoSelectionAction. A negative or restrictive reply such as "no, just those two" is never a request for all repositories. Use kind all only for an unmistakable affirmative request for every or all starred repositories.
 
 Normalize topic names to lowercase GitHub topic slugs. When changing topics, return the complete desired topic list after the correction. For settings-only corrections, return only the changed fields.
-For a topic feed without a named topic, set source to topics. For a starred feed without a username, set source to starred. When the user names specific repositories, return their full owner/repo names in repoSelection.subset.repos.
+For a topic feed without a named topic, set source to topics. For a starred feed without a username, set source to starred. When the user names specific repositories, return their full owner/repo names in repoSelection.repos.
 Map update frequencies exactly: 1 hour = 3600, 6 hours = 21600, 24 hours = 86400, and 1 week = 604800 seconds. For any other interval, use unsupported.
 Releases is the default activity. The stored 3600-second value is only a UI default and does not mean the user chose an update frequency.
 For an unsupported update frequency, use unsupported with unsupportedReason interval. For unrelated or impossible requests, use unsupported with unsupportedReason request. Preserve any otherwise valid explicit feed fields in draftPatch so the application can retain useful progress. Never include unsupportedReason with another intent.
@@ -1035,6 +1035,8 @@ assistantRoutes.post("/turn", async (ctx) => {
 
   const normalizedModelPatch = normalizeModelPatch(decision.draftPatch);
   const explicitRepositoryNames = extractExplicitRepositoryNames(payload.message);
+  // Deterministic owner/repo entities are authoritative even when the model omits
+  // repoSelection; the intent and starred-source gates keep extraction in context.
   const shouldRetainExplicitRepositories =
     decision.intent === "create-or-update-feed" &&
     explicitRepositoryNames.length > 0 &&

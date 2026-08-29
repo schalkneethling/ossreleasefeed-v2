@@ -1,4 +1,5 @@
-import { createElement, useEffect, useId, useState, type ComponentType } from "react";
+import { createElement, useEffect, useId, useRef, useState, type ComponentType } from "react";
+import { useDebounce } from "../hooks/useDebounce";
 import { fetchStarredRepos, type Repo } from "../lib/api";
 import {
   isRepoSelectionComplete,
@@ -10,6 +11,8 @@ import { FeedConfigPanel, GeneratedFeedUrl } from "./FeedConfigPanel";
 import { FeedRecipe } from "./FeedRecipe";
 import { RepoPicker } from "./RepoPicker";
 import { TopicEditor } from "./TopicEditor";
+
+const REPOSITORY_LOOKUP_DEBOUNCE_MS = 450;
 
 type RegistryProps = {
   active: boolean;
@@ -97,21 +100,35 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
   const titleId = useId();
   const [repos, setRepos] = useState<Repo[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const username = draft.username;
+  const lookupControllerRef = useRef<AbortController | null>(null);
+  const username = (draft.username ?? "").trim();
+  const currentUsernameRef = useRef(username);
+  const debouncedUsername = useDebounce(username, REPOSITORY_LOOKUP_DEBOUNCE_MS);
+  currentUsernameRef.current = username;
 
   useEffect(() => {
-    if (!active || username === null) {
+    lookupControllerRef.current?.abort();
+    lookupControllerRef.current = null;
+    setRepos([]);
+    setStatus("idle");
+  }, [active, username]);
+
+  useEffect(() => {
+    if (!active || !debouncedUsername) {
       setRepos([]);
       setStatus("idle");
       return;
     }
 
     const controller = new AbortController();
+    lookupControllerRef.current = controller;
+    const isCurrentLookup = () =>
+      !controller.signal.aborted && currentUsernameRef.current === debouncedUsername;
     setStatus("loading");
 
-    fetchStarredRepos(username, controller.signal)
+    fetchStarredRepos(debouncedUsername, controller.signal)
       .then((fetched) => {
-        if (controller.signal.aborted) {
+        if (!isCurrentLookup()) {
           return;
         }
 
@@ -124,8 +141,14 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         }
       });
 
-    return () => controller.abort();
-  }, [active, username]);
+    return () => {
+      controller.abort();
+
+      if (lookupControllerRef.current === controller) {
+        lookupControllerRef.current = null;
+      }
+    };
+  }, [active, debouncedUsername]);
 
   if (draft.repoSelection?.kind === "all") {
     return (
@@ -164,7 +187,7 @@ const RepoChoices = ({ active, draft, onRepoSelectionChange }: RegistryProps) =>
         </p>
       ) : (
         <RepoPicker
-          key={username ?? "none"}
+          key={username || "none"}
           onSelectionChange={(next) =>
             onRepoSelectionChange(next.size > 0 ? { kind: "subset", repos: [...next] } : null)
           }
