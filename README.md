@@ -77,6 +77,13 @@ through the existing API, and generate URLs with the canonical encoder. They
 do not call the assistant endpoint. Browsers without WebMCP support continue
 to use the app normally.
 
+For local WebMCP development in Chrome, enable
+`chrome://flags/#enable-webmcp-testing` and relaunch the browser. Deployed
+origins can enroll in Chrome's WebMCP origin trial starting with Chrome 149;
+the API is not yet generally shipped. See the
+[Chrome WebMCP documentation](https://developer.chrome.com/docs/ai/webmcp) and
+[Chrome Status](https://chromestatus.com/feature/5117755740913664).
+
 Run the standard local checks with:
 
 ```sh

@@ -16,6 +16,7 @@ import {
 } from "./lib/adaptive-session";
 import { trackEvent } from "./lib/analytics";
 import { createFeedUrlForDraft } from "./lib/feed-url";
+import { hasWebMcp } from "./lib/webmcp";
 
 const FeedMark = () => (
   <svg aria-hidden="true" className="site-header__mark" viewBox="0 0 24 24">
@@ -33,6 +34,7 @@ export function App() {
   const restoredRef = useRef(false);
   const workspaceRef = useRef(workspace);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(10_000);
+  const webMcpAvailable = hasWebMcp();
 
   workspaceRef.current = workspace;
 
@@ -132,6 +134,15 @@ export function App() {
           </p>
         </div>
       </div>
+      <aside aria-label="WebMCP support" className="webmcp-banner">
+        <div className="webmcp-banner__inner">
+          <p className="webmcp-banner__text">
+            {webMcpAvailable
+              ? "WebMCP available — browser agent tools are available on this page."
+              : "WebMCP supported — feed-building tools are available in compatible browsers."}
+          </p>
+        </div>
+      </aside>
       <header className="site-header">
         <div className="site-header__inner">
           <span className="site-header__wordmark">

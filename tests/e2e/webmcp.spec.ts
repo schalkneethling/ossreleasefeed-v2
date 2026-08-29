@@ -142,6 +142,9 @@ test("[webmcp_001] builds a topic feed through the visible trusted UI", async ({
   });
   await page.goto("/");
 
+  await expect(page.getByLabel("WebMCP support")).toContainText(
+    "WebMCP available — browser agent tools are available on this page.",
+  );
   await expect
     .poll(() => activeToolNames(page))
     .toEqual(["choose-feed-source", "read-feed-workspace"]);

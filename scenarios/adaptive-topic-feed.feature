@@ -19,6 +19,7 @@ Feature: Refine a topic feed across conversation and trusted controls
     And the previous recipe and URL summary are not visible
     When the user sends "Hide UI"
     Then the topic and feed setting controls are not visible
+    And the feed recipe and permanent URL are visible again
     And the assistant confirms that the interface is hidden
 
   @adaptive_topic_002

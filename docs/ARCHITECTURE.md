@@ -249,8 +249,9 @@ inference; more varied visibility requests still use the model's `show-ui` or
 planner. For a configured topic feed, showing the UI reveals topic and settings
 controls; for a configured starred feed it reveals username, repository, and
 settings controls. Hiding those controls preserves a completed feed and its
-generated URL as application state while removing the panel from view. The
-model still cannot name components, generate markup, or bypass validation.
+generated URL, and returns the visible stage to the stable recipe and URL
+summary. The model still cannot name components, generate markup, or bypass
+validation.
 
 Incomplete feed-building turns also remain conversational until the user asks
 for controls. Each deterministic response confirms the validated change,

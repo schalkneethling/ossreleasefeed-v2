@@ -163,7 +163,8 @@ test.describe("adaptive feed Phase 2", () => {
 
     await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
     await expect(page.getByLabel("Update frequency")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /ready-token/i })).toBeVisible();
     await expect(page.getByText("I've hidden the feed interface.", { exact: true })).toBeVisible();
   });
 
