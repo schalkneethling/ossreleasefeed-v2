@@ -1,4 +1,3 @@
-@manual @playwright
 Feature: Refine a topic feed across conversation and trusted controls
   A user should be able to move between concise conversational results
   and editable controls without stale responses or URLs winning races.
@@ -7,7 +6,7 @@ Feature: Refine a topic feed across conversation and trusted controls
     Given the adaptive feed experiment is enabled
     And the user has selected "Ask for a feed"
 
-  @adaptive_topic_001 @regression
+  @adaptive_topic_001 @manual @playwright @regression
   Scenario: Show and hide controls for a completed topic feed
     When the user asks for a CSS and JavaScript feed updated every 24 hours
     And the assistant returns a complete validated topic feed
@@ -22,7 +21,7 @@ Feature: Refine a topic feed across conversation and trusted controls
     And the feed recipe and permanent URL are visible again
     And the assistant confirms that the interface is hidden
 
-  @adaptive_topic_002
+  @adaptive_topic_002 @manual @playwright @worker
   Scenario: Revise the current feed configuration and generate a new URL
     Given the current feed-building session contains a completed CSS configuration and displays generated URL "first-token"
     When the user asks to change the current feed to TypeScript and update every 24 hours
@@ -33,7 +32,7 @@ Feature: Refine a topic feed across conversation and trusted controls
     And URL "second-token" is shown in the current feed-building session
     And the current validated configuration uses only TypeScript and updates every 24 hours
 
-  @adaptive_topic_003 @regression
+  @adaptive_topic_003 @playwright @regression
   Scenario: Ignore a delayed assistant response after the user changes a visible control
     Given the visible controls contain the validated CSS topic
     And an assistant request to change the feed is pending

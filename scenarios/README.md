@@ -13,6 +13,11 @@ tools, and canonical feed URLs.
 - `@webmcp` — requires a WebMCP-capable browser host or the test model-context harness.
 - `@regression` — derived from a previously observed failure or race.
 
+Capability tags belong on an individual scenario unless every scenario in the
+feature genuinely supports that execution method. Gherkin inherits a feature's
+tags into all of its scenarios, so feature-level tags must not overstate manual
+or automated coverage.
+
 Each scenario also has a stable journey tag such as `@webmcp_001`. Automated
 test titles should include that tag when the scenario is implemented so a
 failed test can be traced back to its acceptance contract.
@@ -38,7 +43,7 @@ failed test can be traced back to its acceptance contract.
 | `webmcp_002`         | `tests/unit/webmcp.test.ts`; browser coverage to add                            |
 | `webmcp_003`         | `tests/unit/webmcp.test.ts`; browser coverage to add                            |
 | `adaptive_topic_001` | `tests/e2e/adaptive-feed.spec.ts`                                               |
-| `adaptive_topic_002` | `tests/e2e/adaptive-feed.spec.ts`                                               |
+| `adaptive_topic_002` | `tests/e2e/adaptive-feed.spec.ts` and `tests/integration/worker-routes.test.ts` |
 | `adaptive_topic_003` | `tests/e2e/adaptive-feed.spec.ts`                                               |
 | `starred_001`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |
 | `starred_002`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |

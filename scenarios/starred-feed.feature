@@ -1,4 +1,3 @@
-@manual
 Feature: Build a feed from starred repositories
   Starred-feed journeys should preserve explicit user choices
   and recover safely when information or asynchronous results are incomplete.
@@ -15,7 +14,7 @@ Feature: Build a feed from starred repositories
     And the username control remains hidden until requested
     And GitHub was not queried
 
-  @starred_002 @playwright @worker @regression
+  @starred_002 @manual @playwright @worker @regression
   Scenario: Preserve named repositories while asking for the username
     When the user asks for "wrapdotdev/warp" and "mattpocock/skills" from their starred repositories
     And the username is not yet known
@@ -26,7 +25,7 @@ Feature: Build a feed from starred repositories
     And GitHub validates both repositories against that user's public stars
     And the assistant confirms that 2 repositories are selected
 
-  @starred_003 @playwright @regression
+  @starred_003 @manual @playwright @regression
   Scenario: Clear stale repositories while a changed username is debounced
     Given the visible username is "octocat"
     And the repository picker contains "octocat/hello-world"

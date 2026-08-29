@@ -1,4 +1,4 @@
-@manual @playwright @webmcp
+@playwright @webmcp
 Feature: Build a topic feed through WebMCP
   A browser agent should progressively discover only valid actions
   and should update the same trusted workspace and visible UI as a person.
@@ -8,7 +8,7 @@ Feature: Build a topic feed through WebMCP
     And the page is open in a WebMCP-capable host
     And GitHub recognizes the topics "css" and "typescript"
 
-  @webmcp_001
+  @webmcp_001 @manual
   Scenario: Build a complete topic feed with progressive tool discovery
     Then the active WebMCP tools are "choose-feed-source" and "read-feed-workspace"
     When the host calls "choose-feed-source" with source "topics"
@@ -32,7 +32,7 @@ Feature: Build a topic feed through WebMCP
     And no request was made to "/api/assistant/turn"
     And obsolete WebMCP registrations were aborted
 
-  @webmcp_002 @regression
+  @webmcp_002 @manual @regression
   Scenario: Reject an unknown topic without advancing the workspace
     When the host calls "choose-feed-source" with source "topics"
     And GitHub does not recognize the topic "not-a-real-topic"
