@@ -254,7 +254,7 @@ export function AskFeed({
         </p>
       ) : null}
 
-      {showUi ? (
+      {showUi || (state === "ready" && feedUrl !== null) ? (
         <AdaptiveStage
           active={active}
           draft={draft}

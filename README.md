@@ -20,6 +20,7 @@ if you do (there's also a link in the app's footer).
 
 - **Frontend:** React 19, Vite, standard CSS — hosted on Cloudflare Pages
 - **Backend:** Cloudflare Worker, Hono, Effect, TypeScript
+- **Agent interface:** WebMCP tools over the same validated browser workspace used by the UI
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams of the request
 flow, the GitHub subrequest budget, and the feed builder UI states.
@@ -68,6 +69,20 @@ Vite proxies `/api` and `/feed` requests to the Worker on port 8787. The
 adaptive homepage is available only when the Cloudflare Flagship flag
 `adaptive-feed-builder` evaluates to `true` for the `local` surface. Guided
 mode remains available when the flag is disabled.
+
+When the browser exposes `document.modelContext`, the page also registers a
+progressive WebMCP toolset for building topic feeds. The tools update the
+visible Guided/Ask workspace through the existing reducer, validate topics
+through the existing API, and generate URLs with the canonical encoder. They
+do not call the assistant endpoint. Browsers without WebMCP support continue
+to use the app normally.
+
+For local WebMCP development in Chrome, enable
+`chrome://flags/#enable-webmcp-testing` and relaunch the browser. Deployed
+origins can enroll in Chrome's WebMCP origin trial starting with Chrome 149;
+the API is not yet generally shipped. See the
+[Chrome WebMCP documentation](https://developer.chrome.com/docs/ai/webmcp) and
+[Chrome Status](https://chromestatus.com/feature/5117755740913664).
 
 Run the standard local checks with:
 

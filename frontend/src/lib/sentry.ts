@@ -13,3 +13,14 @@ export function initSentry(): void {
     tracesSampleRate,
   });
 }
+
+export function captureWebMcpRegistrationError(toolName: string, error: unknown): void {
+  const errorName = error instanceof Error ? error.name : "UnknownError";
+
+  Sentry.captureException(new Error(`WebMCP registration failed (${errorName})`), {
+    tags: {
+      feature: "webmcp",
+      tool: toolName,
+    },
+  });
+}

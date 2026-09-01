@@ -159,7 +159,7 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
   fixture(
     "starred-subset-before-username",
     "canonical",
-    "Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories",
+    "Create a feed from warpdotdev/warp and mattpocock/skills in my starred repositories",
     "feed-source",
     {
       intent: "create-or-update-feed",
@@ -167,7 +167,7 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
         source: "starred",
         repoSelection: {
           kind: "subset",
-          repos: ["wrapdotdev/warp", "mattpocock/skills"],
+          repos: ["warpdotdev/warp", "mattpocock/skills"],
         },
       },
     },
@@ -207,8 +207,47 @@ export const ADAPTIVE_MODEL_EVAL_V1: readonly AssistantModelEvalFixture[] = [
     {
       draft: starredDraft("octocat", {
         kind: "subset",
-        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        repos: ["warpdotdev/warp", "mattpocock/skills"],
       }),
+    },
+  ),
+  fixture(
+    "correct-invalid-repository-name",
+    "correction",
+    "I mean warpdotdev/warp",
+    "recovery",
+    {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+    },
+    {
+      draft: starredDraft("schalkneethling", {
+        kind: "subset",
+        repos: ["mattpocock/skills"],
+      }),
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+    },
+  ),
+  fixture(
+    "replace-repository-selection-during-recovery",
+    "correction",
+    "Only use warpdotdev/warp",
+    "recovery",
+    {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+      repoSelectionAction: { kind: "replace" },
+    },
+    {
+      draft: starredDraft("schalkneethling", {
+        kind: "subset",
+        repos: ["mattpocock/skills"],
+      }),
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
     },
   ),
   fixture(

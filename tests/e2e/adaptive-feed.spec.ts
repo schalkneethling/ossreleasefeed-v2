@@ -99,7 +99,7 @@ test.describe("adaptive feed Phase 2", () => {
     await expectNoSeriousViolations(page);
   });
 
-  test("replaces a ready summary with editable controls when the user asks to show the UI", async ({
+  test("[adaptive_topic_001] replaces a ready summary with editable controls when the user asks to show the UI", async ({
     page,
   }) => {
     let requestNumber = 0;
@@ -163,7 +163,8 @@ test.describe("adaptive feed Phase 2", () => {
 
     await expect(page.getByRole("heading", { name: "Topics" })).toHaveCount(0);
     await expect(page.getByLabel("Update frequency")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Feed recipe" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Feed recipe" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /ready-token/i })).toBeVisible();
     await expect(page.getByText("I've hidden the feed interface.", { exact: true })).toBeVisible();
   });
 
@@ -496,13 +497,13 @@ test.describe("adaptive feed Phase 2", () => {
     await expect(page.getByRole("heading", { name: "Choose a feed source" })).toHaveCount(0);
   });
 
-  test("sends the validated snapshot for a correction and replaces the stale URL", async ({
+  test("[adaptive_topic_002] revises the current configuration and displays its newly generated URL", async ({
     page,
   }) => {
     let requestNumber = 0;
-    let correctionBody: {
+    let revisionBody: {
       state?: unknown;
-      draft?: { topics?: unknown };
+      draft?: unknown;
     } | null = null;
 
     await page.route("**/api/assistant/turn", async (route) => {
@@ -524,12 +525,12 @@ test.describe("adaptive feed Phase 2", () => {
         return;
       }
 
-      correctionBody = body;
+      revisionBody = body;
       await route.fulfill({
         json: {
           state: "ready",
           draft: topicDraft(["typescript"], 86400),
-          message: "Your corrected topic feed is ready.",
+          message: "Your revised topic feed is ready.",
           issues: [],
           feedUrl: "https://worker.example/feed/second-token",
           showUi: true,
@@ -548,17 +549,22 @@ test.describe("adaptive feed Phase 2", () => {
     await page.getByRole("button", { name: "Send request" }).click();
 
     await expect.poll(() => requestNumber).toBe(2);
-    expect(correctionBody?.state).toBe("ready");
-    expect(correctionBody?.draft?.topics).toEqual(["css"]);
-    expect(correctionBody).not.toHaveProperty("history");
+    expect(revisionBody?.state).toBe("ready");
+    expect(revisionBody?.draft).toEqual(topicDraft(["css"]));
+    expect(revisionBody).not.toHaveProperty("history");
     await expect(page.getByRole("link", { name: /first-token/i })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /second-token/i })).toBeVisible();
+    const recipe = page.getByRole("region", { name: "Feed recipe" });
+
+    await expect(recipe.getByText("css", { exact: true })).toHaveCount(0);
+    await expect(recipe.getByText("typescript", { exact: true })).toBeVisible();
+    await expect(recipe.getByText("24 hours", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("Your corrected topic feed is ready.", { exact: true }),
+      page.getByText("Your revised topic feed is ready.", { exact: true }),
     ).toBeVisible();
   });
 
-  test("ignores a response after the draft changes while the request is pending", async ({
+  test("[adaptive_topic_003] ignores a delayed response after the user changes a visible control", async ({
     page,
   }) => {
     let requestNumber = 0;
@@ -975,8 +981,8 @@ test.describe("adaptive feed Phase 3", () => {
 
   const repoFixture = [
     {
-      full_name: "octocat/hello-world",
-      name: "hello-world",
+      full_name: "octocat/Hello-World",
+      name: "Hello-World",
       description: "A hello-world repository",
       stargazers_count: 42,
       owner: { login: "octocat" },
@@ -1024,7 +1030,9 @@ test.describe("adaptive feed Phase 3", () => {
     await expectNoSeriousViolations(page);
   });
 
-  test("asks for a GitHub username conversationally when it is missing", async ({ page }) => {
+  test("[starred_001] asks for a GitHub username conversationally when it is missing", async ({
+    page,
+  }) => {
     await page.route("**/api/assistant/turn", (route) =>
       route.fulfill({
         json: {
@@ -1047,10 +1055,13 @@ test.describe("adaptive feed Phase 3", () => {
     const conversation = page.getByRole("list", { name: "Feed builder conversation" });
     await expect(conversation.getByText(/which github username should i use/i)).toBeVisible();
     await expect(page.getByRole("heading", { name: "GitHub username" })).toHaveCount(0);
+    await expect(page.getByText("Your feed URL", { exact: true })).toHaveCount(0);
   });
 
-  test("carries named repositories through the username follow-up", async ({ page }) => {
-    const requestedRepos = ["wrapdotdev/warp", "mattpocock/skills"];
+  test("[starred_002] carries named repositories through the username follow-up", async ({
+    page,
+  }) => {
+    const requestedRepos = ["warpdotdev/warp", "mattpocock/skills"];
     let requestNumber = 0;
     let usernameTurnDraft: Record<string, unknown> | null = null;
 
@@ -1081,7 +1092,7 @@ test.describe("adaptive feed Phase 3", () => {
                   3600,
                 ),
                 message:
-                  "I selected 2 repositories: wrapdotdev/warp and mattpocock/skills. Next, choose how often the feed should update.",
+                  "I selected 2 repositories: warpdotdev/warp and mattpocock/skills. Next, choose how often the feed should update.",
                 issues: [],
                 feedUrl: null,
                 showUi: false,
@@ -1094,7 +1105,7 @@ test.describe("adaptive feed Phase 3", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page
       .getByLabel("Your request")
-      .fill("Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repos");
+      .fill("Create a feed from warpdotdev/warp and mattpocock/skills in my starred repos");
     await page.getByRole("button", { name: "Send request" }).click();
     await page.getByLabel("Your next message").fill("schalkneethling");
     await page.getByRole("button", { name: "Send request" }).click();
@@ -1107,8 +1118,127 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(
       page
         .getByRole("list", { name: "Feed builder conversation" })
-        .getByText(/I selected 2 repositories: wrapdotdev\/warp and mattpocock\/skills/i),
+        .getByText(/I selected 2 repositories: warpdotdev\/warp and mattpocock\/skills/i),
     ).toBeVisible();
+  });
+
+  test("[starred_005] preserves a valid repository when another repository name is corrected", async ({
+    page,
+  }) => {
+    const invalidRepositoryIssue =
+      "“wrapdotdev/warp” is not among @schalkneethling's starred repositories.";
+    const correctedSelection = ["mattpocock/skills", "warpdotdev/warp"];
+    let requestNumber = 0;
+    let correctionRequest: {
+      draft?: { repoSelection?: unknown };
+      issues?: unknown;
+    } | null = null;
+
+    await page.route("**/api/assistant/turn", (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 3) {
+        correctionRequest = route.request().postDataJSON();
+      }
+
+      const responses = [
+        {
+          state: "enter-username",
+          draft: starredDraft(null, {
+            kind: "subset",
+            repos: ["wrapdotdev/warp", "mattpocock/skills"],
+          }),
+          message: "Which GitHub username should I use?",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "choose-repos",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: ["mattpocock/skills"],
+          }),
+          message: "Some repositories are not starred by this user.",
+          issues: [invalidRepositoryIssue],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "edit-settings",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: correctedSelection,
+          }),
+          message:
+            "I selected 2 repositories: mattpocock/skills and warpdotdev/warp. Next, choose how often the feed should update.",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: false,
+        },
+        {
+          state: "edit-settings",
+          draft: starredDraft("schalkneethling", {
+            kind: "subset",
+            repos: correctedSelection,
+          }),
+          message: "Here is the interface for your current feed.",
+          issues: [],
+          feedUrl: null,
+          showUi: true,
+          ttlSelected: false,
+        },
+      ];
+
+      return route.fulfill({ json: responses[requestNumber - 1] });
+    });
+    await page.route("**/api/starred/schalkneethling", (route) =>
+      route.fulfill({
+        json: correctedSelection.map((fullName, index) => ({
+          ...repoFixture[index],
+          full_name: fullName,
+          name: fullName.split("/")[1],
+          owner: { login: fullName.split("/")[0] },
+        })),
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page
+      .getByLabel("Your request")
+      .fill("Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByLabel("Your next message").fill("schalkneethling");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+    await expect(conversation).toContainText(invalidRepositoryIssue);
+
+    await page.getByLabel("Your next message").fill("I mean warpdotdev/warp");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    expect(correctionRequest?.draft?.repoSelection).toEqual({
+      kind: "subset",
+      repos: ["mattpocock/skills"],
+    });
+    expect(correctionRequest?.issues).toEqual([invalidRepositoryIssue]);
+    await expect(conversation.getByText(/I selected 2 repositories/i)).toBeVisible();
+
+    await page.getByLabel("Your next message").fill("show UI");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const repositoryPicker = page.getByRole("list", { name: "Starred repositories" });
+    await expect(
+      repositoryPicker.getByRole("checkbox", { name: /mattpocock\/skills/i }),
+    ).toBeChecked();
+    await expect(
+      repositoryPicker.getByRole("checkbox", { name: /warpdotdev\/warp/i }),
+    ).toBeChecked();
+    await expect(repositoryPicker.getByText("wrapdotdev/warp", { exact: true })).toHaveCount(0);
   });
 
   test("reveals the username field and repository picker on request", async ({ page }) => {
@@ -1164,17 +1294,17 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(page.getByText("All starred repositories", { exact: true })).toBeVisible();
   });
 
-  test("debounces repository loading and clears results when the visible username changes", async ({
+  test("[starred_003] debounces repository loading and clears results when the visible username changes", async ({
     page,
   }) => {
-    let nextUsernameRepoCalls = 0;
+    let changedUsernameRepoCalls = 0;
     await page.route("**/api/assistant/turn", (route) =>
       route.fulfill({
         json: {
           state: "edit-settings",
           draft: starredDraft("octocat", {
             kind: "subset",
-            repos: ["octocat/hello-world"],
+            repos: ["octocat/Hello-World"],
           }),
           message: "Here is the interface for your current feed.",
           issues: [],
@@ -1185,16 +1315,16 @@ test.describe("adaptive feed Phase 3", () => {
       }),
     );
     await page.route("**/api/starred/octocat", (route) => route.fulfill({ json: repoFixture }));
-    await page.route("**/api/starred/next-user", (route) => {
-      nextUsernameRepoCalls += 1;
+    await page.route("**/api/starred/schalkneethling", (route) => {
+      changedUsernameRepoCalls += 1;
 
       return route.fulfill({
         json: [
           {
             ...repoFixture[0],
-            full_name: "next-user/new-repository",
-            name: "new-repository",
-            owner: { login: "next-user" },
+            full_name: "github/docs",
+            name: "docs",
+            owner: { login: "github" },
           },
         ],
       });
@@ -1204,15 +1334,15 @@ test.describe("adaptive feed Phase 3", () => {
     await page.getByRole("button", { name: /ask for a feed/i }).click();
     await page.getByLabel("Your request").fill("Show UI");
     await page.getByRole("button", { name: "Send request" }).click();
-    await expect(page.getByText("octocat/hello-world", { exact: true })).toBeVisible();
+    await expect(page.getByText("octocat/Hello-World", { exact: true })).toBeVisible();
 
-    await page.getByRole("textbox", { name: "GitHub username" }).fill("  next-user  ");
-    await expect(page.getByText("octocat/hello-world", { exact: true })).toHaveCount(0);
-    expect(nextUsernameRepoCalls).toBe(0);
-    await expect(page.getByText("next-user/new-repository", { exact: true })).toBeVisible({
+    await page.getByRole("textbox", { name: "GitHub username" }).fill("  schalkneethling  ");
+    await expect(page.getByText("octocat/Hello-World", { exact: true })).toHaveCount(0);
+    expect(changedUsernameRepoCalls).toBe(0);
+    await expect(page.getByText("github/docs", { exact: true })).toBeVisible({
       timeout: 2000,
     });
-    expect(nextUsernameRepoCalls).toBe(1);
+    expect(changedUsernameRepoCalls).toBe(1);
   });
 
   test("builds a subset starred feed with the repository picker", async ({ page }) => {
@@ -1242,7 +1372,7 @@ test.describe("adaptive feed Phase 3", () => {
 
     await expect(page.getByRole("link", { name: /\/feed\//i })).toBeVisible();
     await expect(
-      page.locator(".feed-recipe").getByText("octocat/hello-world", { exact: true }),
+      page.locator(".feed-recipe").getByText("octocat/Hello-World", { exact: true }),
     ).toBeVisible();
   });
 

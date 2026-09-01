@@ -93,7 +93,7 @@ describe("assistant contracts", () => {
     ).toBe(true);
   });
 
-  it("validates positional repository-selection actions", () => {
+  it("validates repository-selection actions", () => {
     expect(
       isModelDecision({
         intent: "create-or-update-feed",
@@ -101,6 +101,20 @@ describe("assistant contracts", () => {
         repoSelectionAction: { kind: "all" },
       }),
     ).toBe(true);
+    expect(
+      isModelDecision({
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "replace" },
+      }),
+    ).toBe(true);
+    expect(
+      isModelDecision({
+        intent: "create-or-update-feed",
+        draftPatch: {},
+        repoSelectionAction: { kind: "replace", count: 1 },
+      }),
+    ).toBe(false);
     expect(
       isModelDecision({
         intent: "create-or-update-feed",
@@ -185,7 +199,7 @@ describe("assistant contracts", () => {
           source: "starred",
           repoSelection: {
             kind: "subset",
-            repos: ["wrapdotdev/warp", "mattpocock/skills"],
+            repos: ["warpdotdev/warp", "mattpocock/skills"],
           },
         },
         { username: "schalkneethling" },
@@ -195,7 +209,7 @@ describe("assistant contracts", () => {
       username: "schalkneethling",
       repoSelection: {
         kind: "subset",
-        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        repos: ["warpdotdev/warp", "mattpocock/skills"],
       },
     });
   });

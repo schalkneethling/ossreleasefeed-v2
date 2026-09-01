@@ -249,7 +249,7 @@ describe("adaptive workspace", () => {
         source: "starred" as const,
         repoSelection: {
           kind: "subset" as const,
-          repos: ["wrapdotdev/warp", "mattpocock/skills"],
+          repos: ["warpdotdev/warp", "mattpocock/skills"],
         },
       },
     };
@@ -262,7 +262,7 @@ describe("adaptive workspace", () => {
       username: "schalkneethling",
       repoSelection: {
         kind: "subset",
-        repos: ["wrapdotdev/warp", "mattpocock/skills"],
+        repos: ["warpdotdev/warp", "mattpocock/skills"],
       },
     });
   });

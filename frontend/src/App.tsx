@@ -1,20 +1,22 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { AskFeed } from "./components/AskFeed";
 import { Builder } from "./components/Builder";
 import { Hero } from "./components/Hero";
 import { useInteractionCycle } from "./hooks/useInteractionCycle";
-import { fetchExperiments, getExperimentKey, isRepoSelectionComplete } from "./lib/assistant";
+import { useWebMcpTools } from "./hooks/useWebMcpTools";
+import { fetchExperiments, getExperimentKey } from "./lib/assistant";
 import {
   adaptiveWorkspaceReducer,
   clearAdaptiveWorkspace,
   DEFAULT_ADAPTIVE_WORKSPACE,
   loadAdaptiveWorkspace,
   persistAdaptiveWorkspace,
+  type AdaptiveAction,
   type InteractionMode,
 } from "./lib/adaptive-session";
 import { trackEvent } from "./lib/analytics";
-import { feedUrl } from "./lib/api";
-import { encodeFeedConfig } from "./lib/config";
+import { createFeedUrlForDraft } from "./lib/feed-url";
+import { hasWebMcp } from "./lib/webmcp";
 
 const FeedMark = () => (
   <svg aria-hidden="true" className="site-header__mark" viewBox="0 0 24 24">
@@ -32,8 +34,19 @@ export function App() {
   const restoredRef = useRef(false);
   const workspaceRef = useRef(workspace);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(10_000);
+  const webMcpAvailable = hasWebMcp();
 
   workspaceRef.current = workspace;
+
+  const applyWebMcpAction = useCallback((action: AdaptiveAction) => {
+    const next = adaptiveWorkspaceReducer(workspaceRef.current, action);
+    workspaceRef.current = next;
+    dispatch(action);
+
+    return next;
+  }, []);
+
+  useWebMcpTools({ applyAction: applyWebMcpAction, workspace });
 
   useEffect(() => {
     const controller = beginCycle();
@@ -97,48 +110,11 @@ export function App() {
     }
   };
 
-  const generateTopicUrl = () => {
-    if (workspace.draft.source !== "topics" || workspace.draft.topics.length === 0) {
-      return;
-    }
-
-    const token = encodeFeedConfig({
-      source: "topics",
-      topics: workspace.draft.topics,
-      topicOperator: "or",
-      activityType: workspace.draft.activityType,
-      ttl: workspace.draft.ttl,
-      format: "atom",
-    });
-
-    dispatch({ type: "set-feed-url", feedUrl: feedUrl(token) });
-  };
-
   const generateFeedUrl = () => {
-    const { draft } = workspace;
-    const { repoSelection } = draft;
+    const generatedUrl = createFeedUrlForDraft(workspace.draft);
 
-    if (draft.source === "topics" && draft.topics.length > 0) {
-      generateTopicUrl();
-      return;
-    }
-
-    if (
-      draft.source === "starred" &&
-      draft.username !== null &&
-      repoSelection !== null &&
-      isRepoSelectionComplete(repoSelection)
-    ) {
-      const token = encodeFeedConfig({
-        source: "starred",
-        username: draft.username,
-        repos: repoSelection.kind === "subset" ? repoSelection.repos : null,
-        activityType: draft.activityType,
-        ttl: draft.ttl,
-        format: "atom",
-      });
-
-      dispatch({ type: "set-feed-url", feedUrl: feedUrl(token) });
+    if (generatedUrl !== null) {
+      dispatch({ type: "set-feed-url", feedUrl: generatedUrl });
     }
   };
 
@@ -158,6 +134,15 @@ export function App() {
           </p>
         </div>
       </div>
+      {webMcpAvailable ? (
+        <aside aria-label="WebMCP support" className="webmcp-banner">
+          <div className="webmcp-banner__inner">
+            <p className="webmcp-banner__text">
+              WebMCP available — browser agent tools are available on this page.
+            </p>
+          </div>
+        </aside>
+      ) : null}
       <header className="site-header">
         <div className="site-header__inner">
           <span className="site-header__wordmark">
@@ -252,7 +237,7 @@ export function App() {
               feedUrl={workspace.feedUrl}
               onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
               onGenerateStarredUrl={generateFeedUrl}
-              onGenerateTopicUrl={generateTopicUrl}
+              onGenerateTopicUrl={generateFeedUrl}
               onRepoSelectionChange={(repoSelection) =>
                 dispatch({ type: "set-repo-selection", repoSelection })
               }
