@@ -258,6 +258,9 @@ test("[webmcp_004] manual completion wins over a slow WebMCP topic selection", a
   });
   await page.goto("/");
   await invokeTool(page, "choose-feed-source", { source: "topics" });
+  await expect
+    .poll(() => activeToolNames(page))
+    .toEqual(["choose-feed-source", "read-feed-workspace", "set-topics"]);
 
   const slowWebMcpSelection = invokeTool(page, "set-topics", { topics: ["css"] });
   await expect.poll(() => slowValidationStarted).toBe(true);
