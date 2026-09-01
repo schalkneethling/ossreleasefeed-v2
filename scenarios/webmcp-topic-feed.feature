@@ -53,3 +53,14 @@ Feature: Build a topic feed through WebMCP
     Then the tool result has error code "invalid-state"
     And the workspace has no feed URL
     And no feed URL is visible
+
+  @webmcp_004 @regression
+  Scenario: Manual completion supersedes a slow WebMCP topic selection
+    When the host calls "choose-feed-source" with source "topics"
+    And the host starts validating the topic "css" but GitHub responds slowly
+    And the user selects the different topic "typescript" in the visible builder
+    And the user selects an update frequency and generates the feed URL
+    And GitHub eventually responds to the superseded "css" validation
+    Then the superseded tool result has error code "stale-workspace"
+    And the selected topics list contains "typescript" and not "css"
+    And the generated feed URL remains visible for "typescript"
