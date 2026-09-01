@@ -282,13 +282,49 @@ describe("GET /feed/:config", () => {
       const payload = await response.json();
 
       expect(response.status).toBe(503);
-      expect(payload.error).toBe("GitHub temporarily unavailable");
+      expect(payload).toEqual({
+        error: "GitHub temporarily unavailable",
+        code: "github_rate_limited",
+      });
+      expect(response.headers.get("Retry-After")).toBe("1");
       expect(captureFeedError).toHaveBeenCalledTimes(1);
       expect(captureFeedError).toHaveBeenCalledWith(
         expect.objectContaining({ _tag: "GitHubRateLimitError" }),
       );
     },
   );
+
+  it("returns a distinct safe error for non-rate-limit feed generation failures", async () => {
+    const upstreamDetail = "private upstream account detail";
+    server.use(
+      http.get("https://api.github.com/search/repositories", () =>
+        HttpResponse.json({ message: upstreamDetail }, { status: 503 }),
+      ),
+    );
+
+    const config = encodeFeedConfig({
+      source: "topics",
+      topics: ["web-components"],
+      topicOperator: "and",
+      activityType: "releases",
+      ttl: 3600,
+      format: "atom",
+    });
+    const response = await fetchApp(`https://example.com/feed/${config}`);
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      error: "GitHub temporarily unavailable",
+      code: "github_unavailable",
+    });
+    expect(JSON.stringify(payload)).not.toContain(upstreamDetail);
+    expect(response.headers.get("Retry-After")).toBeNull();
+    expect(captureFeedError).toHaveBeenCalledTimes(1);
+    expect(captureFeedError).toHaveBeenCalledWith(
+      expect.objectContaining({ _tag: "GitHubNetworkError" }),
+    );
+  });
 
   it("returns an empty but valid feed when individual repo atom feeds return errors", async () => {
     server.use(

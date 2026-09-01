@@ -128,9 +128,21 @@ feedRoutes.get("/:config", async (ctx) => {
 
     captureFeedError(error);
 
+    if (error instanceof GitHubRateLimitError) {
+      return ctx.json(
+        {
+          error: "GitHub temporarily unavailable",
+          code: "github_rate_limited",
+        },
+        503,
+        { "Retry-After": String(error.retryAfter) },
+      );
+    }
+
     return ctx.json(
       {
         error: "GitHub temporarily unavailable",
+        code: "github_unavailable",
       },
       503,
     );

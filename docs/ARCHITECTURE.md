@@ -95,10 +95,14 @@ sequenceDiagram
         else GitHub rate-limited and a previous snapshot exists
             G-->>W: rate limit error
             W-->>R: 200 stale feed + Retry-After
+        else GitHub rate-limited and no previous snapshot
+            G-->>W: rate limit error
+            W->>W: captureFeedError() → Sentry
+            W-->>R: 503 { error: "GitHub temporarily unavailable", code: "github_rate_limited" } + Retry-After
         else any other error (incl. subrequest-cap exceeded)
             G-->>W: error
             W->>W: captureFeedError() → Sentry
-            W-->>R: 503 { error: "GitHub temporarily unavailable" }
+            W-->>R: 503 { error: "GitHub temporarily unavailable", code: "github_unavailable" }
         end
     end
 ```
