@@ -216,3 +216,72 @@ test("[webmcp_001] builds a topic feed through the visible trusted UI", async ({
   expect(abortedRegistrations).toBeGreaterThan(0);
   expect(assistantCalls).toBe(0);
 });
+
+test("[webmcp_004] manual completion wins over a slow WebMCP topic selection", async ({ page }) => {
+  let slowValidationStarted = false;
+  let releaseSlowValidation: (() => void) | undefined;
+  await installWebMcpFake(page);
+  await page.route("**/api/experiments", (route) =>
+    route.fulfill({ json: { adaptiveFeedBuilder: false } }),
+  );
+  await page.route("**/api/topics/featured", (route) =>
+    route.fulfill({
+      json: [
+        { name: "css", display_name: "CSS", short_description: "Cascading Style Sheets" },
+        {
+          name: "typescript",
+          display_name: "TypeScript",
+          short_description: "Typed JavaScript",
+        },
+      ],
+    }),
+  );
+  await page.route("**/api/topics/validate**", async (route) => {
+    const slug = new URL(route.request().url()).searchParams.get("q");
+
+    if (slug === "css") {
+      slowValidationStarted = true;
+      await new Promise<void>((resolve) => {
+        releaseSlowValidation = resolve;
+      });
+
+      try {
+        await route.fulfill({ json: { exists: true, name: slug } });
+      } catch {
+        // The browser has already cancelled the superseded validation request.
+      }
+
+      return;
+    }
+
+    await route.fulfill({ json: { exists: true, name: slug } });
+  });
+  await page.goto("/");
+  await invokeTool(page, "choose-feed-source", { source: "topics" });
+
+  const slowWebMcpSelection = invokeTool(page, "set-topics", { topics: ["css"] });
+  await expect.poll(() => slowValidationStarted).toBe(true);
+
+  await page.getByRole("checkbox", { name: "TypeScript" }).check();
+  await page.getByLabel("Update frequency").selectOption("86400");
+  await page.getByRole("button", { name: "Generate feed URL" }).click();
+
+  if (!releaseSlowValidation) {
+    throw new Error("Expected the slow WebMCP validation to start.");
+  }
+
+  releaseSlowValidation();
+
+  const manualUrl = page.getByRole("link", { name: /\/feed\//i });
+  await expect(manualUrl).toBeVisible();
+  await expect(slowWebMcpSelection).resolves.toMatchObject({
+    ok: false,
+    error: { code: "stale-workspace" },
+  });
+  await expect(page.getByRole("list", { name: "Selected topics" })).toContainText("typescript");
+  await expect(page.getByRole("list", { name: "Selected topics" })).not.toContainText("css");
+  expect(decodeFeedToken((await manualUrl.getAttribute("href")) ?? "")).toMatchObject({
+    topics: ["typescript"],
+    ttl: 86400,
+  });
+});

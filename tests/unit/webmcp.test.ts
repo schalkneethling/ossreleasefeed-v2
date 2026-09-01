@@ -7,6 +7,7 @@ import {
 } from "../../frontend/src/lib/adaptive-session";
 import { createFeedUrlForDraft } from "../../frontend/src/lib/feed-url";
 import {
+  createWebMcpMutationCoordinator,
   createWebMcpTools,
   hasWebMcp,
   webMcpToolNamesForWorkspace,
@@ -40,6 +41,7 @@ const createHarness = (
 ) => {
   let workspace = DEFAULT_ADAPTIVE_WORKSPACE;
   const actions: AdaptiveAction[] = [];
+  const mutations = createWebMcpMutationCoordinator();
   const applyAction = (action: AdaptiveAction): AdaptiveWorkspace => {
     actions.push(action);
     workspace = adaptiveWorkspaceReducer(workspace, action);
@@ -49,6 +51,7 @@ const createHarness = (
     createWebMcpTools({
       applyAction,
       getWorkspace: () => workspace,
+      mutations,
       validateTopic,
     });
   const tool = (name: WebMcpToolName) => {
@@ -78,6 +81,7 @@ const createHarness = (
     execute,
     executeAsHost,
     getWorkspace: () => workspace,
+    mutations,
     tool,
     tools,
   };
@@ -231,6 +235,71 @@ describe("WebMCP tools", () => {
     ).rejects.toBe(reason);
     expect(validateTopic).not.toHaveBeenCalled();
     expect(harness.getWorkspace().revision).toBe(revision);
+  });
+
+  it("automatically aborts an older topic validation when a newer WebMCP mutation starts", async () => {
+    let firstSignal: AbortSignal | undefined;
+    const validateTopic = vi.fn<TopicValidator>((slug, signal) => {
+      if (slug === "css") {
+        firstSignal = signal;
+        return new Promise<{ exists: boolean; name: string }>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }
+
+      return Promise.resolve({ exists: true, name: slug });
+    });
+    const harness = createHarness(validateTopic);
+    await harness.execute("choose-feed-source", { source: "topics" });
+
+    const first = harness.execute("set-topics", { topics: ["css"] });
+    await vi.waitFor(() => expect(firstSignal).toBeDefined());
+    const second = harness.execute("set-topics", { topics: ["typescript"] });
+
+    await expect(first).resolves.toMatchObject({
+      ok: false,
+      error: { code: "stale-workspace" },
+    });
+    await expect(second).resolves.toMatchObject({ ok: true });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(harness.getWorkspace().draft.topics).toEqual(["typescript"]);
+  });
+
+  it("aborts pending WebMCP validation when a manual workspace action takes over", async () => {
+    let resolveValidation: ((value: { exists: boolean; name: string }) => void) | undefined;
+    let validationSignal: AbortSignal | undefined;
+    const validateTopic = vi.fn<TopicValidator>(
+      (_slug, signal) =>
+        new Promise<{ exists: boolean; name: string }>((resolve) => {
+          validationSignal = signal;
+          resolveValidation = resolve;
+        }),
+    );
+    const harness = createHarness(validateTopic);
+    await harness.execute("choose-feed-source", { source: "topics" });
+    const pending = harness.execute("set-topics", { topics: ["css"] });
+    await vi.waitFor(() => expect(validationSignal).toBeDefined());
+
+    // The visible UI's synchronous action path revokes pending WebMCP authority
+    // before applying this user-selected topic.
+    harness.mutations.invalidate();
+    harness.applyAction({ type: "set-topics", topics: ["typescript"] });
+
+    if (!resolveValidation) {
+      throw new Error("Expected topic validation to start.");
+    }
+
+    resolveValidation({ exists: true, name: "css" });
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      error: { code: "stale-workspace" },
+    });
+    expect(validationSignal?.aborted).toBe(true);
+    expect(harness.getWorkspace()).toMatchObject({
+      draft: { topics: ["typescript"] },
+      feedUrl: null,
+    });
   });
 
   it("does not apply asynchronously validated topics over a newer workspace revision", async () => {

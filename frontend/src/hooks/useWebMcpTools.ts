@@ -1,16 +1,22 @@
 import { useEffect, useRef } from "react";
 import type { AdaptiveAction, AdaptiveWorkspace } from "../lib/adaptive-session";
-import { createWebMcpTools, hasWebMcp, webMcpAvailabilityKey } from "../lib/webmcp";
+import {
+  createWebMcpTools,
+  hasWebMcp,
+  type WebMcpMutationCoordinator,
+  webMcpAvailabilityKey,
+} from "../lib/webmcp";
 import { captureWebMcpRegistrationError } from "../lib/sentry";
 
 type WebMcpToolOptions = {
   applyAction: (action: AdaptiveAction) => AdaptiveWorkspace;
+  mutations: WebMcpMutationCoordinator;
   workspace: AdaptiveWorkspace;
 };
 
-export const useWebMcpTools = ({ applyAction, workspace }: WebMcpToolOptions): void => {
-  const optionsRef = useRef({ applyAction, workspace });
-  optionsRef.current = { applyAction, workspace };
+export const useWebMcpTools = ({ applyAction, mutations, workspace }: WebMcpToolOptions): void => {
+  const optionsRef = useRef({ applyAction, mutations, workspace });
+  optionsRef.current = { applyAction, mutations, workspace };
   const availabilityKey = webMcpAvailabilityKey(workspace);
 
   useEffect(() => {
@@ -33,6 +39,7 @@ export const useWebMcpTools = ({ applyAction, workspace }: WebMcpToolOptions): v
         return next;
       },
       getWorkspace: () => optionsRef.current.workspace,
+      mutations,
     });
 
     tools.forEach((tool) => {

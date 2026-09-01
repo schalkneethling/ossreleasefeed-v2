@@ -16,7 +16,7 @@ import {
 } from "./lib/adaptive-session";
 import { trackEvent } from "./lib/analytics";
 import { createFeedUrlForDraft } from "./lib/feed-url";
-import { hasWebMcp } from "./lib/webmcp";
+import { createWebMcpMutationCoordinator, hasWebMcp } from "./lib/webmcp";
 
 const FeedMark = () => (
   <svg aria-hidden="true" className="site-header__mark" viewBox="0 0 24 24">
@@ -33,20 +33,39 @@ export function App() {
   const experimentKeyRef = useRef(getExperimentKey());
   const restoredRef = useRef(false);
   const workspaceRef = useRef(workspace);
+  const webMcpMutationsRef = useRef(createWebMcpMutationCoordinator());
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(10_000);
   const webMcpAvailable = hasWebMcp();
 
   workspaceRef.current = workspace;
 
-  const applyWebMcpAction = useCallback((action: AdaptiveAction) => {
-    const next = adaptiveWorkspaceReducer(workspaceRef.current, action);
-    workspaceRef.current = next;
-    dispatch(action);
+  const applyWorkspaceAction = useCallback(
+    (action: AdaptiveAction, origin: "manual" | "webmcp" = "manual") => {
+      if (origin === "manual") {
+        webMcpMutationsRef.current.invalidate();
+      }
 
-    return next;
-  }, []);
+      const next = adaptiveWorkspaceReducer(workspaceRef.current, action);
+      workspaceRef.current = next;
+      dispatch(action);
 
-  useWebMcpTools({ applyAction: applyWebMcpAction, workspace });
+      return next;
+    },
+    [],
+  );
+
+  const applyWebMcpAction = useCallback(
+    (action: AdaptiveAction) => {
+      return applyWorkspaceAction(action, "webmcp");
+    },
+    [applyWorkspaceAction],
+  );
+
+  useWebMcpTools({
+    applyAction: applyWebMcpAction,
+    mutations: webMcpMutationsRef.current,
+    workspace,
+  });
 
   useEffect(() => {
     const controller = beginCycle();
@@ -58,7 +77,7 @@ export function App() {
             const restored = loadAdaptiveWorkspace();
 
             if (restored) {
-              dispatch({ type: "restore", workspace: restored });
+              applyWorkspaceAction({ type: "restore", workspace: restored });
             }
           }
 
@@ -88,12 +107,12 @@ export function App() {
   const startGuided = () => {
     trackEvent("Feed builder started");
     setFallbackMessage(null);
-    dispatch({ type: "start-guided" });
+    applyWorkspaceAction({ type: "start-guided" });
   };
 
   const chooseMode = (mode: InteractionMode) => {
     setFallbackMessage(null);
-    dispatch({ type: "select-mode", mode });
+    applyWorkspaceAction({ type: "select-mode", mode });
   };
 
   const fallbackToGuided = (disabled: boolean) => {
@@ -102,7 +121,7 @@ export function App() {
         ? "Ask mode was disabled. Your guided feed builder is ready below."
         : "Continue your request with the guided feed builder.",
     );
-    dispatch({ type: "fallback-guided" });
+    applyWorkspaceAction({ type: "fallback-guided" });
 
     if (disabled) {
       clearAdaptiveWorkspace();
@@ -114,14 +133,14 @@ export function App() {
     const generatedUrl = createFeedUrlForDraft(workspace.draft);
 
     if (generatedUrl !== null) {
-      dispatch({ type: "set-feed-url", feedUrl: generatedUrl });
+      applyWorkspaceAction({ type: "set-feed-url", feedUrl: generatedUrl });
     }
   };
 
   const startOver = () => {
     clearAdaptiveWorkspace();
     setFallbackMessage(null);
-    dispatch({ type: "reset" });
+    applyWorkspaceAction({ type: "reset" });
   };
 
   return (
@@ -209,21 +228,32 @@ export function App() {
             issues={workspace.issues}
             revision={workspace.revision}
             showUi={workspace.showUi}
-            onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
-            onAssistantResult={(userMessage, response, baseRevision) =>
-              dispatch({ type: "assistant-result", baseRevision, userMessage, response })
+            onActivityChange={(activityType) =>
+              applyWorkspaceAction({ type: "set-activity", activityType })
             }
-            onComposerChange={(composer) => dispatch({ type: "set-composer", composer })}
+            onAssistantResult={(userMessage, response, baseRevision) =>
+              applyWorkspaceAction({
+                type: "assistant-result",
+                baseRevision,
+                userMessage,
+                response,
+              })
+            }
+            onComposerChange={(composer) =>
+              applyWorkspaceAction({ type: "set-composer", composer })
+            }
             onGenerate={generateFeedUrl}
             onGuidedFallback={fallbackToGuided}
             onRepoSelectionChange={(repoSelection) =>
-              dispatch({ type: "set-repo-selection", repoSelection })
+              applyWorkspaceAction({ type: "set-repo-selection", repoSelection })
             }
-            onSourceChange={(source) => dispatch({ type: "set-source", source })}
+            onSourceChange={(source) => applyWorkspaceAction({ type: "set-source", source })}
             onStartOver={startOver}
-            onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
-            onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
-            onUsernameChange={(username) => dispatch({ type: "set-username", username })}
+            onTopicsChange={(topics) => applyWorkspaceAction({ type: "set-topics", topics })}
+            onTtlChange={(ttl) => applyWorkspaceAction({ type: "set-ttl", ttl })}
+            onUsernameChange={(username) =>
+              applyWorkspaceAction({ type: "set-username", username })
+            }
             state={workspace.adaptiveState}
             transcript={workspace.transcript}
             ttlSelected={workspace.ttlSelected}
@@ -235,16 +265,20 @@ export function App() {
               active={workspace.selectedMode === "guided"}
               draft={workspace.draft}
               feedUrl={workspace.feedUrl}
-              onActivityChange={(activityType) => dispatch({ type: "set-activity", activityType })}
+              onActivityChange={(activityType) =>
+                applyWorkspaceAction({ type: "set-activity", activityType })
+              }
               onGenerateStarredUrl={generateFeedUrl}
               onGenerateTopicUrl={generateFeedUrl}
               onRepoSelectionChange={(repoSelection) =>
-                dispatch({ type: "set-repo-selection", repoSelection })
+                applyWorkspaceAction({ type: "set-repo-selection", repoSelection })
               }
-              onSourceChange={(source) => dispatch({ type: "set-source", source })}
-              onTopicsChange={(topics) => dispatch({ type: "set-topics", topics })}
-              onTtlChange={(ttl) => dispatch({ type: "set-ttl", ttl })}
-              onUsernameChange={(username) => dispatch({ type: "set-username", username })}
+              onSourceChange={(source) => applyWorkspaceAction({ type: "set-source", source })}
+              onTopicsChange={(topics) => applyWorkspaceAction({ type: "set-topics", topics })}
+              onTtlChange={(ttl) => applyWorkspaceAction({ type: "set-ttl", ttl })}
+              onUsernameChange={(username) =>
+                applyWorkspaceAction({ type: "set-username", username })
+              }
             />
           </div>
         ) : null}

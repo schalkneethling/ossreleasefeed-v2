@@ -322,12 +322,17 @@ flowchart LR
 ```
 
 Tool schemas help the host form valid calls, while every handler also validates
-inputs and current state at runtime. Topic validation is asynchronous and
-revision-guarded, so a late result cannot overwrite newer user or agent edits.
-Registration lifetimes use abort signals; when the workflow changes, the old
-tool set is removed before the newly applicable tools become live. Tool
-handlers re-check state at execution time in case a host retained a stale tool
-reference.
+inputs and current state at runtime. Topic validation is asynchronous. The
+workspace applies a strict **newer action wins** policy: a newer mutating
+WebMCP invocation aborts older pending WebMCP work, and every visible UI action
+immediately revokes pending WebMCP work before changing the workspace. A
+revoked selection is always reported as stale and is never re-applied, even if
+it happens to match the user's current selection, because re-applying a draft
+would clear a completed URL. The workspace revision check remains the final
+guard if an upstream request settles despite cancellation. Registration
+lifetimes use abort signals; when the workflow changes, the old tool set is
+removed before the newly applicable tools become live. Tool handlers re-check
+state at execution time in case a host retained a stale tool reference.
 
 WebMCP is a deterministic browser command surface, not a second assistant. It
 does not call `POST /api/assistant/turn`, does not expose transcript, composer,

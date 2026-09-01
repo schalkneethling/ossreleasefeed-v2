@@ -42,6 +42,7 @@ failed test can be traced back to its acceptance contract.
 | `webmcp_001`         | `tests/e2e/webmcp.spec.ts`                                                      |
 | `webmcp_002`         | `tests/unit/webmcp.test.ts`; browser coverage to add                            |
 | `webmcp_003`         | `tests/unit/webmcp.test.ts`; browser coverage to add                            |
+| `webmcp_004`         | `tests/e2e/webmcp.spec.ts` and `tests/unit/webmcp.test.ts`                      |
 | `adaptive_topic_001` | `tests/e2e/adaptive-feed.spec.ts`                                               |
 | `adaptive_topic_002` | `tests/e2e/adaptive-feed.spec.ts` and `tests/integration/worker-routes.test.ts` |
 | `adaptive_topic_003` | `tests/e2e/adaptive-feed.spec.ts`                                               |

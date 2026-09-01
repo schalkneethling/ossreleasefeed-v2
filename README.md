@@ -74,8 +74,10 @@ When the browser exposes `document.modelContext`, the page also registers a
 progressive WebMCP toolset for building topic feeds. The tools update the
 visible Guided/Ask workspace through the existing reducer, validate topics
 through the existing API, and generate URLs with the canonical encoder. They
-do not call the assistant endpoint. Browsers without WebMCP support continue
-to use the app normally.
+do not call the assistant endpoint. A newer WebMCP mutation or any manual UI
+change cancels pending WebMCP validation; a revision guard ensures a late
+response cannot overwrite the user's newer workspace. Browsers without WebMCP
+support continue to use the app normally.
 
 For local WebMCP development in Chrome, enable
 `chrome://flags/#enable-webmcp-testing` and relaunch the browser. Deployed
