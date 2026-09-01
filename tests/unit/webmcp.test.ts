@@ -30,6 +30,11 @@ type TopicValidator = (
   signal?: AbortSignal,
 ) => Promise<{ exists: boolean; name: string | null }>;
 
+type HostToolExecute = (
+  input: Record<string, unknown>,
+  options?: { signal?: AbortSignal },
+) => unknown | Promise<unknown>;
+
 const createHarness = (
   validateTopic = vi.fn<TopicValidator>(async (slug) => ({ exists: true, name: slug })),
 ) => {
@@ -60,11 +65,18 @@ const createHarness = (
     input: Record<string, unknown>,
     signal = new AbortController().signal,
   ): Promise<ToolResult> => (await tool(name).execute(input, { signal })) as ToolResult;
+  const executeAsHost = async (
+    name: WebMcpToolName,
+    input: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ): Promise<ToolResult> =>
+    (await (tool(name).execute as HostToolExecute)(input, options)) as ToolResult;
 
   return {
     actions,
     applyAction,
     execute,
+    executeAsHost,
     getWorkspace: () => workspace,
     tool,
     tools,
@@ -158,6 +170,27 @@ describe("WebMCP tools", () => {
       state: "ready",
       feedUrl: generated.feedUrl,
       ttlSelected: true,
+    });
+  });
+
+  it("accepts host invocations with omitted options or signal", async () => {
+    const harness = createHarness();
+
+    await expect(harness.executeAsHost("read-feed-workspace", {})).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(
+      harness.executeAsHost("choose-feed-source", { source: "topics" }, { signal: undefined }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      harness.executeAsHost("set-topics", { topics: ["css"] }, {}),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      harness.executeAsHost("set-feed-settings", { activityType: "all", ttl: 86400 }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(harness.executeAsHost("generate-feed-url", {}, {})).resolves.toMatchObject({
+      ok: true,
+      feedUrl: expect.stringMatching(/^\/feed\/[A-Za-z0-9_-]+$/u),
     });
   });
 

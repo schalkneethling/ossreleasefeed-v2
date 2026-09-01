@@ -32,6 +32,12 @@ type WorkspaceSnapshot = {
 
 type ToolFailureCode = "invalid-input" | "invalid-state" | "stale-workspace" | "unknown-topics";
 
+type WebMcpExecutionOptions = Partial<WebMCP.ToolExecuteCallbackOptions>;
+
+const throwIfAborted = (signal: AbortSignal | undefined): void => {
+  signal?.throwIfAborted();
+};
+
 const toolFailure = (
   code: ToolFailureCode,
   message: string,
@@ -169,8 +175,8 @@ export const createWebMcpTools = ({
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true },
-      execute(input, { signal }) {
-        signal.throwIfAborted();
+      execute(input, options?: WebMcpExecutionOptions) {
+        throwIfAborted(options?.signal);
 
         if (!isRecord(input) || !hasExactKeys(input, [])) {
           return toolFailure("invalid-input", "This tool does not accept input properties.");
@@ -196,8 +202,8 @@ export const createWebMcpTools = ({
         required: ["source"],
         additionalProperties: false,
       },
-      execute(input, { signal }) {
-        signal.throwIfAborted();
+      execute(input, options?: WebMcpExecutionOptions) {
+        throwIfAborted(options?.signal);
 
         if (!isRecord(input)) {
           return toolFailure("invalid-input", "Tool input must be an object.");
@@ -252,8 +258,9 @@ export const createWebMcpTools = ({
         required: ["topics"],
         additionalProperties: false,
       },
-      async execute(input, { signal }) {
-        signal.throwIfAborted();
+      async execute(input, options?: WebMcpExecutionOptions) {
+        const signal = options?.signal;
+        throwIfAborted(signal);
 
         if (!isRecord(input)) {
           return toolFailure("invalid-input", "Tool input must be an object.");
@@ -285,7 +292,7 @@ export const createWebMcpTools = ({
         const validations = await Promise.all(
           topics.map((topic) => validateTopicDependency(topic, signal)),
         );
-        signal.throwIfAborted();
+        throwIfAborted(signal);
 
         const invalidTopics = topics.filter((_, index) => !validations[index]?.exists);
 
@@ -340,8 +347,8 @@ export const createWebMcpTools = ({
         required: ["activityType", "ttl"],
         additionalProperties: false,
       },
-      execute(input, { signal }) {
-        signal.throwIfAborted();
+      execute(input, options?: WebMcpExecutionOptions) {
+        throwIfAborted(options?.signal);
 
         if (!isRecord(input)) {
           return toolFailure("invalid-input", "Tool input must be an object.");
@@ -396,8 +403,8 @@ export const createWebMcpTools = ({
         properties: {},
         additionalProperties: false,
       },
-      execute(input, { signal }) {
-        signal.throwIfAborted();
+      execute(input, options?: WebMcpExecutionOptions) {
+        throwIfAborted(options?.signal);
 
         if (!isRecord(input) || !hasExactKeys(input, [])) {
           return toolFailure("invalid-input", "This tool does not accept input properties.");
