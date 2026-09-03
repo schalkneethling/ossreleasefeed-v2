@@ -72,8 +72,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/ibm-plex-mono':
-        specifier: ^5.2.7
-        version: 5.2.7
+        specifier: ^5.3.0
+        version: 5.3.0
       '@sentry/react':
         specifier: ^10.72.0
         version: 10.72.0(react@19.2.8)
@@ -498,8 +498,8 @@ packages:
   '@fontsource-variable/bricolage-grotesque@5.3.0':
     resolution: {integrity: sha512-TLi9Q4hJjS2UvoTMRSS2nHu6c4R56lAw60NR9QYtVRCHn0XtsFpiEhNffZ8Glsoxu6wEEwLKBP8lb94J52PNBA==}
 
-  '@fontsource/ibm-plex-mono@5.2.7':
-    resolution: {integrity: sha512-MKAb8qV+CaiMQn2B0dIi1OV3565NYzp3WN5b4oT6LTkk+F0jR6j0ZN+5BKJiIhffDC3rtBULsYZE65+0018z9w==}
+  '@fontsource/ibm-plex-mono@5.3.0':
+    resolution: {integrity: sha512-eTgnZjZEGk1QtD3ZstF+Vclo2HLAni8YMy34/DxllwZvyz1lR/1RF/xTiAquOBO7MvqBx8D2Ig2WCPMVfdZu7Q==}
 
   '@hono/standard-validator@0.4.0':
     resolution: {integrity: sha512-MxOm1asDh9j7c1D0KiWwppSbFgAQxTRO4YEhjMrJn3lF1BIcXenPdgjSGKDRfQmZdaTaMA8slQLETgVOKyJxFw==}
@@ -2851,7 +2851,7 @@ snapshots:
 
   '@fontsource-variable/bricolage-grotesque@5.3.0': {}
 
-  '@fontsource/ibm-plex-mono@5.2.7': {}
+  '@fontsource/ibm-plex-mono@5.3.0': {}
 
   '@hono/standard-validator@0.4.0(@standard-schema/spec@1.1.0)(hono@4.13.5)':
     dependencies:
