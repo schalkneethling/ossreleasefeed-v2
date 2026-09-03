@@ -52,7 +52,7 @@ importers:
         version: 2.1.0(stylelint@17.14.0(typescript@7.0.2))
       stylelint-plugin-use-baseline:
         specifier: '*'
-        version: 1.4.5(stylelint@17.14.0(typescript@7.0.2))
+        version: 1.4.6(stylelint@17.14.0(typescript@7.0.2))
       stylelint-selector-bem-pattern:
         specifier: ^5.0.0
         version: 5.0.0(stylelint@17.14.0(typescript@7.0.2))
@@ -1845,8 +1845,8 @@ packages:
     resolution: {integrity: sha512-lJJV/5dYS+RcL8uQdBDW9c9uWFLLBNRyFhnAKXw5tVqLlKZ4RMGZKv+YQ/IA3OhD+RpbJa1LLFM1FQPGyIXvOA==}
     engines: {node: '>=12'}
 
-  is-plain-object@5.0.0:
-    resolution: {integrity: sha512-VRSzKkbMm5jMDoKLbltAkFQ5Qr7VDiTFGXxYFXXowVj387GeGNOCsOH6Msy00SGZ3Fp84b1Naa1psqgcCIEP5Q==}
+  is-plain-object@5.1.0:
+    resolution: {integrity: sha512-bUi/yjmtKYcRVUtWRGr0UA6xEFh2I6zWUwMrUXB3s7bmYCaZ8a+0ZsTRkrawh/mzlSD1Y0Ph8bp/U+TvBpWDNw==}
     engines: {node: '>=0.10.0'}
 
   isexe@2.0.0:
@@ -2308,8 +2308,8 @@ packages:
     peerDependencies:
       stylelint: ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  stylelint-plugin-use-baseline@1.4.5:
-    resolution: {integrity: sha512-/AHhNgy3VQKx8bEc3ZeTc2tVOqU3Gdyr+55ZzUHrTtY0L/uGw9gyeIDWUQWpQiY4EwpAlQ009bSvQDt8cdqvmw==}
+  stylelint-plugin-use-baseline@1.4.6:
+    resolution: {integrity: sha512-8FyloHsa3YXt0y3wVYToV1frYgX/p7GYOCV7EjV/BjiNFzzGnqJvcKK94vNBfI/BOUi1d8L+VdgBqx5zNMF3uw==}
     peerDependencies:
       stylelint: ^16.0.2 || ^17.0.0
 
@@ -3873,7 +3873,7 @@ snapshots:
 
   is-path-inside@4.0.0: {}
 
-  is-plain-object@5.0.0: {}
+  is-plain-object@5.1.0: {}
 
   isexe@2.0.0: {}
 
@@ -4320,10 +4320,10 @@ snapshots:
     dependencies:
       stylelint: 17.14.0(typescript@7.0.2)
 
-  stylelint-plugin-use-baseline@1.4.5(stylelint@17.14.0(typescript@7.0.2)):
+  stylelint-plugin-use-baseline@1.4.6(stylelint@17.14.0(typescript@7.0.2)):
     dependencies:
       css-tree: 3.2.1
-      is-plain-object: 5.0.0
+      is-plain-object: 5.1.0
       postcss: 8.5.26
       postcss-value-parser: 4.2.0
       stylelint: 17.14.0(typescript@7.0.2)
