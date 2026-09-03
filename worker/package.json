@@ -17,6 +17,6 @@
     "sax": "^1.6.1"
   },
   "devDependencies": {
-    "wrangler": "^4.110.0"
+    "wrangler": "^4.127.1"
   }
 }
