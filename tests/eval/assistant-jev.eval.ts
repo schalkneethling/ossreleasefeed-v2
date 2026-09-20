@@ -54,7 +54,16 @@ const loadFixtureSet = async (raw: string | undefined): Promise<FixtureSet> => {
     };
   }
 
-  throw new Error("EVAL_FIXTURE_SET must be v1 or v2-heldout");
+  if (raw === "v3-validation") {
+    const module = await import("../fixtures/assistant-model-eval-v3-validation");
+
+    return {
+      version: "adaptive-eval-v3-validation",
+      fixtures: module.ADAPTIVE_MODEL_EVAL_V3_VALIDATION,
+    };
+  }
+
+  throw new Error("EVAL_FIXTURE_SET must be v1, v2-heldout, or v3-validation");
 };
 const HARD_REQUEST_CAP = 80;
 const CHALLENGER_IDS = ["asks_for_information", "about_ui_visibility", "out_of_scope"] as const;
