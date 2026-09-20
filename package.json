@@ -16,7 +16,8 @@
     "test:unit": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test": "pnpm run test:unit && pnpm run test:integration",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "eval:assistant": "varlock run -- vitest run --config vitest.eval.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

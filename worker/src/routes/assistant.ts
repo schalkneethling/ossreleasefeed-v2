@@ -10,12 +10,16 @@ import {
   isModelDecision,
   type ModelDecision,
 } from "../assistant/contracts";
+import {
+  extractExplicitRepositoryNames,
+  TOPIC_SLUG,
+  USERNAME_PATTERN,
+} from "../assistant/entities";
 import { evaluateAdaptiveFeedBuilder, readExperimentKey } from "../assistant/experiment";
 import { applyDraftPatch, isStateConsistentWithDraft } from "../assistant/state";
 import { GitHubClient } from "../github/client";
 import { encodeFeedConfig } from "../lib/config";
 import { runEffect } from "../lib/run";
-import { REPO_FULL_NAME_PATTERN } from "../lib/schemas";
 import type { AppEnv } from "../lib/types";
 import { editableStateForDraft, isRepoSelectionComplete } from "../../../shared/adaptive-contracts";
 
@@ -31,16 +35,12 @@ const MAX_BODY_BYTES = 8_192;
 // 503 response as a lookup failure.
 const GITHUB_LOOKUP_TIMEOUT = Duration.seconds(10);
 const MAX_EXPLICIT_REPOSITORIES = 25;
-const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
-const USERNAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,37}[a-zA-Z0-9])?$/u;
 const TOPIC_LIMIT_ISSUE = "Use between one and five GitHub topic slugs.";
 const SETTINGS_ISSUE = "Choose 1 hour, 6 hours, 24 hours, or 1 week.";
 const SETTINGS_OPTIONS_MESSAGE =
   "The feed can update every 1 hour, 6 hours, 24 hours, or 1 week. Tell me which frequency you want, or ask me to show the settings UI.";
 const CAPABILITIES_MESSAGE =
   "You can create feeds by GitHub topic or from a user's starred repositories. Describe the topics or the GitHub username you want to follow.";
-const REPO_FULL_NAME_CANDIDATE_PATTERN =
-  /(?:^|[^A-Za-z0-9_./-])([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?=$|[^A-Za-z0-9_./-])/gu;
 
 const MODEL_RESPONSE_SCHEMA = {
   type: "object",
@@ -453,21 +453,6 @@ const normalizeModelPatch = (patch: ModelDecision["draftPatch"]): ModelDecision[
   }
 
   return normalized;
-};
-
-const extractExplicitRepositoryNames = (message: string): string[] => {
-  const candidates = [...message.matchAll(REPO_FULL_NAME_CANDIDATE_PATTERN)].map(
-    (match) => match[1],
-  );
-
-  return [
-    ...new Set(
-      candidates.filter(
-        (candidate): candidate is string =>
-          candidate !== undefined && REPO_FULL_NAME_PATTERN.test(candidate),
-      ),
-    ),
-  ];
 };
 
 const mergeRepositoryNames = (
