@@ -99,7 +99,7 @@ jobs:
         if: steps.check-secrets.outputs.configured == 'true'
         uses: pnpm/action-setup@v6.0.10
         with:
-          version: 11.9.0
+          version: 12.5.1
 
       - name: Setup Node.js
         if: steps.check-secrets.outputs.configured == 'true'

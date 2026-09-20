@@ -65,7 +65,7 @@ The adaptive feed experiment's current status and remaining phased work are in
 ### Prerequisites
 
 - Node.js 22
-- Corepack with pnpm 11.9.0
+- Corepack with pnpm 12.5.1
 - The 1Password desktop app and CLI, with desktop-app integration enabled
 - Access to the project's Cloudflare account for remote Workers AI and
   Flagship bindings
