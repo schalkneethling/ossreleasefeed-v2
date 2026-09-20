@@ -251,10 +251,12 @@ export function App() {
             onStartOver={startOver}
             onTopicsChange={(topics) => applyWorkspaceAction({ type: "set-topics", topics })}
             onTtlChange={(ttl) => applyWorkspaceAction({ type: "set-ttl", ttl })}
+            onTurnSubmitted={() => applyWorkspaceAction({ type: "turn-submitted" })}
             onUsernameChange={(username) =>
               applyWorkspaceAction({ type: "set-username", username })
             }
             state={workspace.adaptiveState}
+            suggestions={workspace.suggestions}
             transcript={workspace.transcript}
             ttlSelected={workspace.ttlSelected}
           />

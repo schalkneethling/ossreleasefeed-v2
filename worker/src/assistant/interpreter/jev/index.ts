@@ -39,7 +39,7 @@ export const interpretWithJev: Interpreter = async (turn, env, signal) => {
   }
 
   try {
-    return composeDecision(turn, candidates, response.answers).decision;
+    return composeDecision(turn, candidates, response.answers);
   } catch (error) {
     if (error instanceof JevCompositionError) {
       throw new AssistantModelError(error.message, { cause: error });

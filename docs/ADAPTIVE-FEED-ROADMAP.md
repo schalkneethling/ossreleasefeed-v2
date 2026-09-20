@@ -40,6 +40,10 @@ The repository currently supports:
   controls automatically.
 - An explicit “Show UI” intent that reveals registered React components for
   the validated conversation state.
+- Suggested replies on every assistant response: a planner-owned catalogue
+  keyed by the next required decision, answered without inference when chosen,
+  plus Jev hints for signals that fell just short of being applied and a
+  low-intent-confidence “ask again” safety net.
 - Mixed typed and point-and-click topic and starred configuration.
 - Controlled mode switching, Guided fallback, stale-URL clearing, Start over,
   and versioned seven-day local persistence.
@@ -65,6 +69,9 @@ state-machine behavior, trust boundaries, rate limits, and persistence rules.
 - An interpreter receives only the current message, the validated draft, its
   issues, and application-derived context—never the transcript. Jev selects
   among code-built candidates and cannot generate a value.
+- Suggestions are application-owned copy; the model never authors them. A
+  suggestion answered without inference still passes the rate limits and the
+  same planner and validation code as a model decision.
 - Informational questions remain textual until controls are requested or a
   control is needed to resolve ambiguity.
 - “Show UI” composes only registered components and reflects the validated

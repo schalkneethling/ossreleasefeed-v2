@@ -673,7 +673,8 @@ describe("POST /api/assistant/turn", () => {
     });
     const response = await postAssistant(
       {
-        ...assistantRequest("24 hours"),
+        // Not the exact "24 hours" suggested reply, which is answered without the model.
+        ...assistantRequest("Every 24 hours please"),
         state: "edit-settings",
         draft: {
           ...DEFAULT_FEED_DRAFT,

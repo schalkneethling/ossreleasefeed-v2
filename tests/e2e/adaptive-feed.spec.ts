@@ -58,6 +58,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/canonical-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       });
     });
@@ -117,6 +118,7 @@ test.describe("adaptive feed Phase 2", () => {
                 feedUrl: "https://worker.example/feed/ready-token",
                 showUi: true,
                 ttlSelected: true,
+                suggestions: [],
               }
             : requestNumber === 2
               ? {
@@ -127,6 +129,7 @@ test.describe("adaptive feed Phase 2", () => {
                   feedUrl: null,
                   showUi: true,
                   ttlSelected: true,
+                  suggestions: [],
                 }
               : {
                   state: "ready",
@@ -136,6 +139,7 @@ test.describe("adaptive feed Phase 2", () => {
                   feedUrl: "https://worker.example/feed/ready-token",
                   showUi: false,
                   ttlSelected: true,
+                  suggestions: [],
                 },
       });
     });
@@ -204,6 +208,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "http://malicious.example/feed/canonical-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       }),
     );
@@ -295,6 +300,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/guided-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       });
     });
@@ -344,6 +350,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: requestNumber > 1,
           ttlSelected: false,
+          suggestions: [],
         },
       });
     });
@@ -398,6 +405,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: requestNumber > 1,
           ttlSelected: false,
+          suggestions: [],
         },
       });
     });
@@ -464,6 +472,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: requestNumber > 2,
           ttlSelected: false,
+          suggestions: [],
         },
       });
     });
@@ -520,6 +529,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: "https://worker.example/feed/first-token",
             showUi: true,
             ttlSelected: true,
+            suggestions: [],
           },
         });
         return;
@@ -535,6 +545,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/second-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       });
     });
@@ -583,6 +594,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: true,
             ttlSelected: false,
+            suggestions: [],
           },
         });
         return;
@@ -600,6 +612,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/stale-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       });
     });
@@ -642,6 +655,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: false,
             ttlSelected: false,
+            suggestions: [],
           },
           {
             state: "edit-topics",
@@ -651,6 +665,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: true,
             ttlSelected: false,
+            suggestions: [],
           },
           {
             state: "edit-settings",
@@ -660,6 +675,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: false,
             ttlSelected: false,
+            suggestions: [],
           },
           {
             state: "edit-settings",
@@ -669,6 +685,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: true,
             ttlSelected: false,
+            suggestions: [],
           },
         ][requestNumber - 1] ?? {
           state: "edit-topics",
@@ -678,6 +695,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
       });
     });
@@ -720,6 +738,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: true,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -758,6 +777,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: null,
           showUi: true,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -781,6 +801,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/reset-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       }),
     );
@@ -811,6 +832,7 @@ test.describe("adaptive feed Phase 2", () => {
           feedUrl: "https://worker.example/feed/reset-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       });
     });
@@ -854,6 +876,7 @@ test.describe("adaptive feed Phase 2", () => {
             feedUrl: null,
             showUi: false,
             ttlSelected: false,
+            suggestions: [],
           },
         });
       }
@@ -912,7 +935,7 @@ test.describe("adaptive feed Phase 2", () => {
       localStorage.setItem(
         "ossreleasefeed:adaptive-session",
         JSON.stringify({
-          version: 4,
+          version: 5,
           savedAt: Date.now(),
           revision: 1,
           adaptiveState: "edit-topics",
@@ -932,6 +955,7 @@ test.describe("adaptive feed Phase 2", () => {
           issues: [],
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
           selectedMode: "ask",
           builderStarted: false,
         }),
@@ -1007,6 +1031,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: "https://worker.example/feed/starred-token",
           showUi: true,
           ttlSelected: true,
+          suggestions: [],
         },
       }),
     );
@@ -1043,6 +1068,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -1083,6 +1109,7 @@ test.describe("adaptive feed Phase 3", () => {
                 feedUrl: null,
                 showUi: false,
                 ttlSelected: false,
+                suggestions: [],
               }
             : {
                 state: "edit-settings",
@@ -1097,6 +1124,7 @@ test.describe("adaptive feed Phase 3", () => {
                 feedUrl: null,
                 showUi: false,
                 ttlSelected: false,
+                suggestions: [],
               },
       });
     });
@@ -1153,6 +1181,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
         {
           state: "choose-repos",
@@ -1165,6 +1194,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
         {
           state: "edit-settings",
@@ -1178,6 +1208,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
         {
           state: "edit-settings",
@@ -1190,6 +1221,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: true,
           ttlSelected: false,
+          suggestions: [],
         },
       ];
 
@@ -1257,6 +1289,7 @@ test.describe("adaptive feed Phase 3", () => {
                 feedUrl: null,
                 showUi: true,
                 ttlSelected: false,
+                suggestions: [],
               }
             : {
                 state: "choose-repos",
@@ -1266,6 +1299,7 @@ test.describe("adaptive feed Phase 3", () => {
                 feedUrl: null,
                 showUi: true,
                 ttlSelected: false,
+                suggestions: [],
               },
       });
     });
@@ -1311,6 +1345,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: true,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -1356,6 +1391,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: true,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -1388,6 +1424,7 @@ test.describe("adaptive feed Phase 3", () => {
           feedUrl: null,
           showUi: false,
           ttlSelected: false,
+          suggestions: [],
         },
       }),
     );
@@ -1413,5 +1450,117 @@ test.describe("adaptive feed Phase 3", () => {
     await expect(page.getByRole("list", { name: "Starred repositories" })).toBeVisible({
       timeout: 5000,
     });
+  });
+});
+
+test.describe("adaptive feed suggested replies", () => {
+  const frequencySuggestions = ["1 hour", "6 hours", "24 hours", "1 week"];
+  const frequencyQuestion = {
+    state: "edit-settings",
+    draft: topicDraft(["css"]),
+    message: "How often should the feed update?",
+    issues: [],
+    feedUrl: null,
+    showUi: false,
+    ttlSelected: false,
+    suggestions: frequencySuggestions,
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/experiments", (route) =>
+      route.fulfill({ json: { adaptiveFeedBuilder: true } }),
+    );
+    await page.route("**/api/topics/featured", (route) => route.fulfill({ json: topicsFixture }));
+  });
+
+  test("[adaptive_topic_004] answers a follow-up question with a suggested reply", async ({
+    page,
+  }) => {
+    let requestNumber = 0;
+    let suggestedReplyRequest: Record<string, unknown> | null = null;
+    let releaseSuggestedReplyResponse: (() => void) | undefined;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      requestNumber += 1;
+
+      if (requestNumber === 1) {
+        await route.fulfill({ json: frequencyQuestion });
+        return;
+      }
+
+      suggestedReplyRequest = route.request().postDataJSON();
+      await new Promise<void>((resolve) => {
+        releaseSuggestedReplyResponse = resolve;
+      });
+      await route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"], 86400),
+          message: "Your topic feed is ready.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/suggested-token",
+          showUi: false,
+          ttlSelected: true,
+          suggestions: ["Start over"],
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+
+    const suggestedReplies = page.getByRole("group", { name: "Suggested replies" });
+    const conversation = page.getByRole("list", { name: "Feed builder conversation" });
+
+    await expect(suggestedReplies.getByRole("button")).toHaveText(frequencySuggestions);
+    await expect(conversation.getByRole("listitem").last()).toContainText(
+      "How often should the feed update?",
+    );
+    await expect(conversation.getByRole("listitem").last().getByRole("group")).toHaveCount(1);
+    await expectNoSeriousViolations(page);
+
+    await suggestedReplies.getByRole("button", { name: "24 hours", exact: true }).click();
+    await expect.poll(() => typeof releaseSuggestedReplyResponse).toBe("function");
+
+    expect(suggestedReplyRequest).toMatchObject({
+      message: "24 hours",
+      state: "edit-settings",
+      draft: { source: "topics", topics: ["css"] },
+    });
+    await expect(suggestedReplies).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Working…" })).toBeDisabled();
+
+    releaseSuggestedReplyResponse?.();
+
+    await expect(page.getByRole("link", { name: /suggested-token/i })).toBeVisible();
+    await expect(conversation.getByText("24 hours", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Your next message")).toHaveValue("");
+    await expect(suggestedReplies.getByRole("button")).toHaveText(["Start over"]);
+    expect(requestNumber).toBe(2);
+  });
+
+  test("[adaptive_topic_004] does not show suggested replies in Guided mode", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({ json: frequencyQuestion }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    await page.getByLabel("Your request").fill("Create a CSS feed");
+    await page.getByRole("button", { name: "Send request" }).click();
+    await expect(page.getByRole("group", { name: "Suggested replies" })).toBeVisible();
+
+    await page.getByRole("button", { name: /^guide me/i }).click();
+
+    await expect(page.locator(".ask-feed__suggestions")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+
+    await expect(
+      page.getByText("How often should the feed update?", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".ask-feed__suggestions")).toHaveCount(0);
   });
 });

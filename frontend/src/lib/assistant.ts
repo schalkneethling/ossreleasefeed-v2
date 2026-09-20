@@ -24,6 +24,8 @@ export {
 } from "../../../shared/adaptive-contracts";
 
 export const ASSISTANT_MESSAGE_LIMIT = 1_000;
+export const SUGGESTION_MAX_ITEMS = 4;
+export const SUGGESTION_MAX_CHARACTERS = 60;
 
 const FEED_SOURCES = ["topics", "starred"] as const;
 const ACTIVITY_TYPES = ["releases", "all"] as const;
@@ -45,6 +47,7 @@ const RESPONSE_KEYS = [
   "feedUrl",
   "showUi",
   "ttlSelected",
+  "suggestions",
 ] as const;
 const EXPERIMENT_RESPONSE_KEYS = ["adaptiveFeedBuilder"] as const;
 const EXPERIMENT_KEY_STORAGE = "ossreleasefeed:experiment-key";
@@ -72,6 +75,7 @@ export type AssistantTurnResponse = {
   feedUrl: string | null;
   showUi: boolean;
   ttlSelected: boolean;
+  suggestions: string[];
 };
 
 let inMemoryExperimentKey: string | undefined;
@@ -141,6 +145,22 @@ const isStringArray = (value: unknown, maximumLength: number): value is string[]
   Array.isArray(value) &&
   value.length <= maximumLength &&
   value.every((item) => typeof item === "string");
+
+/**
+ * Validates suggested replies at every trusted boundary (the wire response and
+ * the restored session). A suggestion is both the chip label and the exact
+ * message submitted when it is chosen, so it must already be a well-formed
+ * message: non-empty, short, unpadded, and unique within the list.
+ */
+export const isSuggestionList = (value: unknown): value is string[] =>
+  isStringArray(value, SUGGESTION_MAX_ITEMS) &&
+  value.every(
+    (suggestion) =>
+      suggestion.length >= 1 &&
+      suggestion.length <= SUGGESTION_MAX_CHARACTERS &&
+      suggestion.trim() === suggestion,
+  ) &&
+  new Set(value).size === value.length;
 
 const isFeedSource = (value: unknown): value is FeedDraft["source"] =>
   value === null || isOneOf(value, FEED_SOURCES);
@@ -230,7 +250,7 @@ export const isFeedDraft = (value: unknown): value is FeedDraft => {
 export const isLegalTransition = (current: AdaptiveState, proposed: AdaptiveState): boolean =>
   current === proposed || LEGAL_TRANSITIONS[current].includes(proposed);
 
-const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse => {
+export const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse => {
   if (!isRecord(value) || !hasExactKeys(value, RESPONSE_KEYS)) {
     return false;
   }
@@ -248,6 +268,7 @@ const isAssistantTurnResponse = (value: unknown): value is AssistantTurnResponse
     !isSecureFeedUrl(value.feedUrl) ||
     typeof value.showUi !== "boolean" ||
     typeof value.ttlSelected !== "boolean" ||
+    !isSuggestionList(value.suggestions) ||
     !isStateConsistentWithDraft(value.state, value.draft, value.ttlSelected)
   ) {
     return false;

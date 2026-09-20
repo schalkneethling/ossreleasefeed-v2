@@ -1,4 +1,5 @@
 import type { FeedDraft, FeedTtl } from "../../contracts";
+import { promptFor } from "../../planner";
 import type { AssistantRequiredDecision } from "./types";
 import type { TurnCandidates } from "./candidates";
 
@@ -11,20 +12,6 @@ export const FREQUENCY_LABELS: Readonly<Record<FeedTtl, string>> = {
   21600: "6 hours",
   86400: "24 hours",
   604800: "1 week",
-};
-
-// The application re-derives what it last asked from the validated draft. The
-// client transcript is presentation state and is never forwarded.
-const APP_QUESTIONS: Readonly<Record<AssistantRequiredDecision, string>> = {
-  "feed-source":
-    "Do you want a feed built from GitHub topics, or from a GitHub user's starred repositories?",
-  "topic-selection": "Which GitHub topics should this feed follow?",
-  "github-username": "Which GitHub username's starred repositories should this feed use?",
-  "repository-selection":
-    "Should the feed include all of this user's starred repositories, or only specific ones?",
-  "feed-settings": "How often should the feed update: 1 hour, 6 hours, 24 hours, or 1 week?",
-  recovery: "Something could not be used. How would you like to correct it?",
-  "complete-feed": "The feed is ready. Would you like to change anything?",
 };
 
 export type JevState = {
@@ -77,7 +64,9 @@ export const buildJevState = (turn: JevTurn, candidates: TurnCandidates): JevSta
   user_message: { text: turn.message },
   app_just_asked: {
     decision: turn.requiredDecision,
-    question: APP_QUESTIONS[turn.requiredDecision],
+    // The application re-derives what it last asked from the validated draft.
+    // The client transcript is presentation state and is never forwarded.
+    question: promptFor(turn.requiredDecision),
   },
   feed_so_far: {
     feed_type: feedType(turn.draft.source),

@@ -42,3 +42,21 @@ Feature: Refine a topic feed across conversation and trusted controls
     And the delayed assistant message is not added to the conversation
     And URL "stale-token" is not visible
     And the unsent composer text is preserved
+
+  @adaptive_topic_004 @manual @playwright
+  Scenario: Answer a follow-up with a suggested reply
+    When the user asks for a CSS feed without naming an update frequency
+    And the assistant asks how often the feed should update and suggests the replies "1 hour", "6 hours", "24 hours", and "1 week"
+    Then a group labelled "Suggested replies" is shown under the latest assistant message
+    And the group contains one button for each suggested reply in the given order
+    When the user chooses the suggested reply "24 hours"
+    Then the assistant request message is exactly "24 hours"
+    And the suggested replies are not shown while the request is pending
+    When the assistant returns a complete validated topic feed and suggests the reply "Start over"
+    Then "24 hours" is shown in the conversation as the user's message
+    And the message field is empty
+    And only the suggested reply "Start over" is shown
+    When the user selects "Guide me"
+    Then no suggested replies are shown
+    When the user selects "Ask for a feed" again
+    Then no suggested replies are shown

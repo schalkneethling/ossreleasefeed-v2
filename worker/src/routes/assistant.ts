@@ -18,20 +18,27 @@ import {
   readExperimentKey,
 } from "../assistant/experiment";
 import { JEV_MODEL, JevClientError } from "../assistant/interpreter/jev/client";
+import { INTENT_CLARIFY_THRESHOLD } from "../assistant/interpreter/jev/compose";
 import { interpretWithJev } from "../assistant/interpreter/jev/index";
 import { interpretWithLlama, MODEL } from "../assistant/interpreter/llama";
-import { AssistantModelError, type Interpreter } from "../assistant/interpreter/types";
+import {
+  AssistantModelError,
+  type Interpretation,
+  type Interpreter,
+} from "../assistant/interpreter/types";
 import {
   CAPABILITIES_MESSAGE,
   SETTINGS_ISSUE,
   SETTINGS_OPTIONS_MESSAGE,
   TOPIC_LIMIT_ISSUE,
   canFinalizeDraft,
+  cannedDecisionFor,
   createStarredFeedUrl,
   createTopicFeedUrl,
   isReadOnlyDecisionValid,
   mergeRepositoryNames,
   normalizeModelPatch,
+  promptFor,
   requiredDecisionFor,
   responseFor,
   selectionMessage,
@@ -84,6 +91,9 @@ const LLAMA_INTERPRETER: ChosenInterpreter = {
   model: MODEL,
   failureStage: "workers-ai",
 };
+
+// Recorded for diagnostics when a suggested reply is answered without inference.
+const CANNED_MODEL = "canned-suggestion";
 
 const JEV_INTERPRETER: ChosenInterpreter = {
   interpret: interpretWithJev,
@@ -203,7 +213,13 @@ const isShowUiCommand = (message: string): boolean => message.trim().toLowerCase
 
 const isHideUiCommand = (message: string): boolean => message.trim().toLowerCase() === "hide ui";
 
-const showUiResponse = (ctx: Context<AppEnv>, payload: AssistantTurnRequest): Response => {
+// Interpreter hints reach the response through a `hints` parameter on every
+// response builder below; nothing about a turn is held at module level.
+const showUiResponse = (
+  ctx: Context<AppEnv>,
+  payload: AssistantTurnRequest,
+  hints: readonly string[] = [],
+): Response => {
   const visibleState = stateForVisibleUi(payload);
 
   return ctx.json(
@@ -211,11 +227,16 @@ const showUiResponse = (ctx: Context<AppEnv>, payload: AssistantTurnRequest): Re
       ttlSelected: payload.ttlSelected,
       issues: payload.issues,
       showUi: true,
+      hints,
     }),
   );
 };
 
-const hideUiResponse = (ctx: Context<AppEnv>, payload: AssistantTurnRequest): Response => {
+const hideUiResponse = (
+  ctx: Context<AppEnv>,
+  payload: AssistantTurnRequest,
+  hints: readonly string[] = [],
+): Response => {
   if (canFinalizeDraft(payload)) {
     const feedUrl =
       payload.draft.source === "topics"
@@ -232,6 +253,7 @@ const hideUiResponse = (ctx: Context<AppEnv>, payload: AssistantTurnRequest): Re
         issues: payload.issues,
         feedUrl,
         showUi: false,
+        hints,
       }),
     );
   }
@@ -241,6 +263,7 @@ const hideUiResponse = (ctx: Context<AppEnv>, payload: AssistantTurnRequest): Re
       ttlSelected: payload.ttlSelected,
       issues: payload.issues,
       showUi: false,
+      hints,
     }),
   );
 };
@@ -288,6 +311,7 @@ const informationalResponse = (
   ctx: Context<AppEnv>,
   payload: AssistantTurnRequest,
   message: string,
+  hints: readonly string[] = [],
 ): Response => {
   if (payload.state === "ready") {
     const feedUrl =
@@ -305,6 +329,7 @@ const informationalResponse = (
         issues: payload.issues,
         feedUrl,
         showUi: true,
+        hints,
       }),
     );
   }
@@ -313,6 +338,7 @@ const informationalResponse = (
     responseFor(payload.state, payload.draft, message, {
       ttlSelected: payload.ttlSelected,
       issues: payload.issues,
+      hints,
     }),
   );
 };
@@ -341,6 +367,7 @@ const handleStarredTurn = async (
   decision: ModelDecision,
   candidate: FeedDraft,
   candidateTtlSelected: boolean,
+  hints: readonly string[],
 ): Promise<Response> => {
   const { username, repoSelection } = candidate;
 
@@ -350,7 +377,7 @@ const handleStarredTurn = async (
         "enter-username",
         candidate,
         "Which GitHub username should I use? I need a username to build a starred-repository feed.",
-        { ttlSelected: candidateTtlSelected },
+        { ttlSelected: candidateTtlSelected, hints },
       ),
     );
   }
@@ -361,6 +388,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor("enter-username", candidate, "That doesn't look like a GitHub username.", {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [issue],
       }),
     );
@@ -385,6 +413,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor("enter-username", candidate, issue, {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [issue],
       }),
     );
@@ -396,6 +425,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor("enter-username", candidate, issue, {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [issue],
       }),
     );
@@ -407,6 +437,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor(editableStateForDraft(candidate), candidate, unsupported.message, {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [unsupported.issue],
       }),
     );
@@ -418,7 +449,7 @@ const handleStarredTurn = async (
         "choose-repos",
         candidate,
         `Found @${username}. Do you want all of their starred repositories or a specific selection?`,
-        { ttlSelected: candidateTtlSelected },
+        { ttlSelected: candidateTtlSelected, hints },
       ),
     );
   }
@@ -430,7 +461,7 @@ const handleStarredTurn = async (
           "edit-settings",
           candidate,
           `I'll include all of @${username}'s starred repositories. Next, choose how often the feed should update. I can show you the settings UI or list the available options.`,
-          { ttlSelected: candidateTtlSelected },
+          { ttlSelected: candidateTtlSelected, hints },
         ),
       );
     }
@@ -438,6 +469,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor("ready", candidate, "Your starred-repository feed is ready.", {
         ttlSelected: candidateTtlSelected,
+        hints,
         feedUrl: createStarredFeedUrl(candidate, ctx.req.url),
         showUi: true,
       }),
@@ -465,6 +497,7 @@ const handleStarredTurn = async (
     return ctx.json(
       responseFor("choose-repos", corrected, "Some repositories are not starred by this user.", {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues,
       }),
     );
@@ -476,7 +509,7 @@ const handleStarredTurn = async (
         "choose-repos",
         corrected,
         `None of those repositories are among @${username}'s starred repositories. Do you want all of them or a specific selection?`,
-        { ttlSelected: candidateTtlSelected },
+        { ttlSelected: candidateTtlSelected, hints },
       ),
     );
   }
@@ -489,6 +522,7 @@ const handleStarredTurn = async (
         selectionMessage(selection.valid, "repository", "repositories"),
         {
           ttlSelected: candidateTtlSelected,
+          hints,
         },
       ),
     );
@@ -497,6 +531,7 @@ const handleStarredTurn = async (
   return ctx.json(
     responseFor("ready", corrected, "Your starred-repository feed is ready.", {
       ttlSelected: candidateTtlSelected,
+      hints,
       feedUrl: createStarredFeedUrl(corrected, ctx.req.url),
       showUi: true,
     }),
@@ -508,6 +543,7 @@ const handleRepoSelectionAction = async (
   decision: ModelDecision,
   candidate: FeedDraft,
   candidateTtlSelected: boolean,
+  hints: readonly string[],
 ): Promise<Response> => {
   const { repoSelectionAction } = decision;
   const { username } = candidate;
@@ -545,6 +581,7 @@ const handleRepoSelectionAction = async (
     return ctx.json(
       responseFor("choose-repos", candidate, issue, {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [issue],
         showUi: true,
       }),
@@ -560,6 +597,7 @@ const handleRepoSelectionAction = async (
     return ctx.json(
       responseFor("ready", selected, "Your starred-repository feed is ready.", {
         ttlSelected: candidateTtlSelected,
+        hints,
         feedUrl: createStarredFeedUrl(selected, ctx.req.url),
         showUi: true,
       }),
@@ -573,6 +611,7 @@ const handleRepoSelectionAction = async (
       selectionMessage(repoNames, "repository", "repositories"),
       {
         ttlSelected: candidateTtlSelected,
+        hints,
         showUi: true,
       },
     ),
@@ -620,33 +659,67 @@ assistantRoutes.post("/turn", async (ctx) => {
     return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
   }
 
-  const interpreter = await chooseInterpreter(ctx);
+  const requiredDecision = requiredDecisionFor(payload);
+  // A suggested reply offered at this required decision has a fixed meaning,
+  // so it needs no interpreter, AI binding, or TypeSafe key. The rate limits
+  // above still apply because several of these decisions call GitHub.
+  const cannedDecision = cannedDecisionFor(payload.message, requiredDecision);
+  let interpretation: Interpretation;
 
-  ctx.set("assistantModel", interpreter.model);
+  if (cannedDecision !== null) {
+    ctx.set("assistantModel", CANNED_MODEL);
+    interpretation = {
+      decision: cannedDecision,
+      hints: [],
+      confidence: null,
+      intentConfidence: null,
+    };
+  } else {
+    const interpreter = await chooseInterpreter(ctx);
 
-  if (interpreter === LLAMA_INTERPRETER && !ctx.env.AI) {
-    return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
-  }
+    ctx.set("assistantModel", interpreter.model);
 
-  let decision: ModelDecision;
-
-  try {
-    decision = await interpreter.interpret(
-      { ...payload, requiredDecision: requiredDecisionFor(payload) },
-      ctx.env,
-      ctx.req.raw.signal,
-    );
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return ctx.body(null, 408);
+    if (interpreter === LLAMA_INTERPRETER && !ctx.env.AI) {
+      return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
     }
 
-    logAssistantFailure(
+    try {
+      interpretation = await interpreter.interpret(
+        { ...payload, requiredDecision },
+        ctx.env,
+        ctx.req.raw.signal,
+      );
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return ctx.body(null, 408);
+      }
+
+      logAssistantFailure(
+        ctx,
+        error instanceof AssistantModelError ? "model-output" : interpreter.failureStage,
+        error,
+      );
+      return ctx.json({ error: "Assistant response was invalid" }, 502);
+    }
+  }
+
+  const { decision, hints } = interpretation;
+  // A discarded or unsupported request already changes nothing and asks for a
+  // rephrase, so it keeps its own reply (an injection discard wins over this).
+  const isRejectedRequest =
+    decision.intent === "unsupported" && decision.unsupportedReason === "request";
+
+  if (
+    interpretation.intentConfidence !== null &&
+    interpretation.intentConfidence < INTENT_CLARIFY_THRESHOLD &&
+    !isRejectedRequest
+  ) {
+    // Too unsure of what was asked to act on it: change nothing and ask again.
+    return informationalResponse(
       ctx,
-      error instanceof AssistantModelError ? "model-output" : interpreter.failureStage,
-      error,
+      payload,
+      `I didn't quite catch that. ${promptFor(requiredDecision)}`,
     );
-    return ctx.json({ error: "Assistant response was invalid" }, 502);
   }
 
   if (!isReadOnlyDecisionValid(decision)) {
@@ -655,11 +728,11 @@ assistantRoutes.post("/turn", async (ctx) => {
   }
 
   if (decision.intent === "show-ui") {
-    return showUiResponse(ctx, payload);
+    return showUiResponse(ctx, payload, hints);
   }
 
   if (decision.intent === "hide-ui") {
-    return hideUiResponse(ctx, payload);
+    return hideUiResponse(ctx, payload, hints);
   }
 
   if (decision.intent === "list-repositories") {
@@ -679,29 +752,34 @@ assistantRoutes.post("/turn", async (ctx) => {
           ttlSelected: payload.ttlSelected,
           issues: payload.issues,
           showUi: true,
+          hints,
         },
       ),
     );
   }
 
   if (decision.intent === "list-settings") {
-    return informationalResponse(ctx, payload, SETTINGS_OPTIONS_MESSAGE);
+    return informationalResponse(ctx, payload, SETTINGS_OPTIONS_MESSAGE, hints);
   }
 
   if (decision.intent === "list-topics") {
     try {
-      return informationalResponse(ctx, payload, await featuredTopicMessage(ctx.var.githubLayer));
+      return informationalResponse(
+        ctx,
+        payload,
+        await featuredTopicMessage(ctx.var.githubLayer),
+        hints,
+      );
     } catch {
       return ctx.json({ error: "Topic discovery temporarily unavailable" }, 503);
     }
   }
 
   if (decision.intent === "explain-capabilities") {
-    return informationalResponse(ctx, payload, CAPABILITIES_MESSAGE);
+    return informationalResponse(ctx, payload, CAPABILITIES_MESSAGE, hints);
   }
 
   const normalizedModelPatch = normalizeModelPatch(decision.draftPatch);
-  const requiredDecision = requiredDecisionFor(payload);
   const explicitRepositoryNames = extractExplicitRepositoryNames(payload.message);
   const currentRepositorySelection = payload.draft.repoSelection;
   let replacementRepositoryNames: string[] | null = null;
@@ -768,6 +846,7 @@ assistantRoutes.post("/turn", async (ctx) => {
       responseFor("choose-repos", payload.draft, issue, {
         ttlSelected: payload.ttlSelected,
         issues: [issue],
+        hints,
       }),
     );
   }
@@ -808,20 +887,22 @@ assistantRoutes.post("/turn", async (ctx) => {
         decision,
         { ...candidate, repoSelection: { kind: "all" } },
         candidateTtlSelected,
+        hints,
       );
     }
 
-    return handleRepoSelectionAction(ctx, decision, candidate, candidateTtlSelected);
+    return handleRepoSelectionAction(ctx, decision, candidate, candidateTtlSelected, hints);
   }
 
   if (candidate.source === "starred") {
-    return handleStarredTurn(ctx, decision, candidate, candidateTtlSelected);
+    return handleStarredTurn(ctx, decision, candidate, candidateTtlSelected, hints);
   }
 
   if (decision.intent === "unsupported" && candidate.source !== "topics") {
     return ctx.json(
       responseFor("recoverable-error", candidate, "That request cannot be used to create a feed.", {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: ["Try describing a topic feed or a starred-repository feed."],
       }),
     );
@@ -833,7 +914,7 @@ assistantRoutes.post("/turn", async (ctx) => {
         "choose-source",
         candidate,
         "Choose whether to build from GitHub topics or starred repositories.",
-        { ttlSelected: candidateTtlSelected },
+        { ttlSelected: candidateTtlSelected, hints },
       ),
     );
   }
@@ -842,6 +923,7 @@ assistantRoutes.post("/turn", async (ctx) => {
     return ctx.json(
       responseFor("edit-topics", candidate, "Choose one or more GitHub topics for this feed.", {
         ttlSelected: candidateTtlSelected,
+        hints,
       }),
     );
   }
@@ -866,6 +948,7 @@ assistantRoutes.post("/turn", async (ctx) => {
         "Some topics could not be found on GitHub.",
         {
           ttlSelected: candidateTtlSelected,
+          hints,
           issues:
             decision.intent === "unsupported" && decision.unsupportedReason === "interval"
               ? [validationIssue, SETTINGS_ISSUE]
@@ -881,6 +964,7 @@ assistantRoutes.post("/turn", async (ctx) => {
     return ctx.json(
       responseFor("edit-settings", candidate, unsupported.message, {
         ttlSelected: candidateTtlSelected,
+        hints,
         issues: [unsupported.issue],
       }),
     );
@@ -896,6 +980,7 @@ assistantRoutes.post("/turn", async (ctx) => {
         selectionMessage(candidate.topics, "topic", "topics"),
         {
           ttlSelected: candidateTtlSelected,
+          hints,
         },
       ),
     );
@@ -904,6 +989,7 @@ assistantRoutes.post("/turn", async (ctx) => {
   return ctx.json(
     responseFor("ready", candidate, "Your topic feed is ready.", {
       ttlSelected: candidateTtlSelected,
+      hints,
       feedUrl: createTopicFeedUrl(candidate, ctx.req.url),
       showUi: true,
     }),

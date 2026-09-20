@@ -1,10 +1,17 @@
 import {
   ASSISTANT_INTENTS,
   type AssistantIntent,
+  type FeedDraft,
   type FeedTtl,
   type ModelDecision,
   type ModelDraftPatch,
 } from "../../contracts";
+import {
+  SUGGEST_ALL_REPOSITORIES,
+  SUGGEST_STARRED_FEED,
+  SUGGEST_TOPIC_FEED,
+  SUGGEST_TTL_LABELS,
+} from "../../planner";
 import type { TopicCandidate, TurnCandidates } from "./candidates";
 import { GENERIC_OPTIONS_INTENT, NO_USERNAME, namesTopicId, removesTopicId } from "./questions";
 import { FREQUENCY_LABELS, type JevTurn } from "./state";
@@ -24,6 +31,15 @@ export const CHOICE_CONFIDENCE_THRESHOLD = 0.5;
 // is inert (the model cannot produce URLs, copy, or fields), so only a clear
 // attempt discards the turn.
 export const INJECTION_THRESHOLD = 0.7;
+// A signal at or above its floor but below its threshold was noticed and not
+// applied; it becomes a suggested reply the person can confirm with one click.
+export const HINT_FLOOR = 0.3;
+// The floor for the repository action, whose threshold is higher.
+export const ACTION_HINT_FLOOR = 0.4;
+// Below this the route asks again instead of acting. Across 308 evaluation
+// judgments correct intents dipped to 0.46 and the two wrong ones were
+// 0.51/0.66, so this is a rarely-firing safety net, not a quality gate.
+export const INTENT_CLARIFY_THRESHOLD = 0.4;
 const MAX_TOPICS = 5;
 const MAX_REPOSITORIES = 25;
 
@@ -47,6 +63,10 @@ export type ComposedDecision = {
   decision: ModelDecision;
   // The least certain judgment consumed; one wrong field spoils the turn.
   confidence: number;
+  // The intent answer's own confidence, which the route's clarify check reads.
+  intentConfidence: number;
+  // Catalogue suggestions for signals that were noticed but not applied.
+  hints: string[];
 };
 
 export class JevCompositionError extends Error {
@@ -97,6 +117,69 @@ const resolveIntent = (
   return answer.choice;
 };
 
+const isInBand = (probability: number, floor: number, threshold: number): boolean =>
+  probability >= floor && probability < threshold;
+
+// Reads the answers only; it never feeds back into the decision. Each hint is
+// for a signal that fell short of its threshold, so none was applied.
+const hintsFor = (
+  turn: JevTurn,
+  candidates: TurnCandidates,
+  answers: Readonly<Record<string, JevAnswer>>,
+  composed: {
+    source: FeedDraft["source"];
+    hasExplicitRepositories: boolean;
+    asksFirst: boolean;
+    refersToExisting: boolean;
+  },
+): string[] => {
+  const hints: string[] = [];
+  const sourceAnswer = choiceOf(answers, "source_value");
+
+  if (
+    isInBand(noulOf(answers, "source_stated"), HINT_FLOOR, STATED_THRESHOLD) &&
+    sourceAnswer !== null &&
+    sourceAnswer.confidence >= CHOICE_CONFIDENCE_THRESHOLD &&
+    (sourceAnswer.choice === "topics" || sourceAnswer.choice === "starred") &&
+    sourceAnswer.choice !== turn.draft.source &&
+    // Already reached through what the message supplied.
+    sourceAnswer.choice !== composed.source
+  ) {
+    hints.push(sourceAnswer.choice === "topics" ? SUGGEST_TOPIC_FEED : SUGGEST_STARRED_FEED);
+  }
+
+  if (
+    isInBand(noulOf(answers, "wants_all_starred"), ACTION_HINT_FLOOR, ACTION_THRESHOLD) &&
+    composed.source === "starred" &&
+    !composed.hasExplicitRepositories &&
+    !composed.asksFirst &&
+    // Referring back to a selection is never a request for every repository.
+    !composed.refersToExisting
+  ) {
+    hints.push(SUGGEST_ALL_REPOSITORIES);
+  }
+
+  if (isInBand(noulOf(answers, "frequency_stated"), HINT_FLOOR, STATED_THRESHOLD)) {
+    // As in the decision, a duration parsed in code beats the model's reading.
+    if (candidates.frequency?.kind === "supported") {
+      hints.push(SUGGEST_TTL_LABELS[candidates.frequency.ttl]);
+    } else if (candidates.frequency === null) {
+      const frequency = choiceOf(answers, "frequency_value");
+      const ttl = frequency === null ? undefined : TTL_BY_LABEL.get(frequency.choice);
+
+      if (
+        frequency !== null &&
+        ttl !== undefined &&
+        frequency.confidence >= CHOICE_CONFIDENCE_THRESHOLD
+      ) {
+        hints.push(SUGGEST_TTL_LABELS[ttl]);
+      }
+    }
+  }
+
+  return hints;
+};
+
 export const composeDecision = (
   turn: JevTurn,
   candidates: TurnCandidates,
@@ -104,7 +187,8 @@ export const composeDecision = (
 ): ComposedDecision => {
   const intentAnswer = choiceOf(answers, "intent");
   const intent = resolveIntent(intentAnswer, turn.requiredDecision);
-  const consumed: number[] = [intentAnswer?.confidence ?? 0];
+  const intentConfidence = intentAnswer?.confidence ?? 0;
+  const consumed: number[] = [intentConfidence];
 
   const injection = noulOf(answers, "injection_attempt");
 
@@ -113,19 +197,28 @@ export const composeDecision = (
     return {
       decision: { intent: "unsupported", draftPatch: {}, unsupportedReason: "request" },
       confidence: Math.min(...consumed, injection),
+      intentConfidence,
+      hints: [],
     };
   }
 
   // Field answers are read only for mutating intents, so an informational
   // turn cannot change the feed.
   if (intent !== "create-or-update-feed" && intent !== "unsupported") {
-    return { decision: { intent, draftPatch: {} }, confidence: Math.min(...consumed) };
+    return {
+      decision: { intent, draftPatch: {} },
+      confidence: Math.min(...consumed),
+      intentConfidence,
+      hints: [],
+    };
   }
 
   if (intent === "unsupported") {
     return {
       decision: { intent, draftPatch: {}, unsupportedReason: "request" },
       confidence: Math.min(...consumed),
+      intentConfidence,
+      hints: [],
     };
   }
 
@@ -290,6 +383,8 @@ export const composeDecision = (
     return {
       decision: { intent: "unsupported", draftPatch: patch, unsupportedReason: "interval" },
       confidence,
+      intentConfidence,
+      hints: [],
     };
   }
 
@@ -300,5 +395,12 @@ export const composeDecision = (
       ...(repoSelectionAction === undefined ? {} : { repoSelectionAction }),
     },
     confidence,
+    intentConfidence,
+    hints: hintsFor(turn, candidates, answers, {
+      source,
+      hasExplicitRepositories: explicitRepositories.length > 0,
+      asksFirst,
+      refersToExisting,
+    }),
   };
 };
