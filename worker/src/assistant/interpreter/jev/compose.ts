@@ -20,6 +20,10 @@ export const STATED_THRESHOLD = 0.5;
 // evaluation set genuine requests score 0.92 or more and ambiguous ones 0.54 or less.
 export const ACTION_THRESHOLD = 0.7;
 export const CHOICE_CONFIDENCE_THRESHOLD = 0.5;
+// Discarding a message costs the person a rephrase, while a missed injection
+// is inert (the model cannot produce URLs, copy, or fields), so only a clear
+// attempt discards the turn.
+export const INJECTION_THRESHOLD = 0.7;
 const MAX_TOPICS = 5;
 const MAX_REPOSITORIES = 25;
 
@@ -101,6 +105,16 @@ export const composeDecision = (
   const intentAnswer = choiceOf(answers, "intent");
   const intent = resolveIntent(intentAnswer, turn.requiredDecision);
   const consumed: number[] = [intentAnswer?.confidence ?? 0];
+
+  const injection = noulOf(answers, "injection_attempt");
+
+  // Any injection attempt discards the whole message, valid parts included.
+  if (injection >= INJECTION_THRESHOLD) {
+    return {
+      decision: { intent: "unsupported", draftPatch: {}, unsupportedReason: "request" },
+      confidence: Math.min(...consumed, injection),
+    };
+  }
 
   // Field answers are read only for mutating intents, so an informational
   // turn cannot change the feed.
@@ -191,7 +205,10 @@ export const composeDecision = (
 
   if (source !== "starred" && (namedTopics.length > 0 || removedTopics.length > 0)) {
     const existing = source === draft.source ? draft.topics : [];
-    const replaces = choiceOf(answers, "topic_edit_mode")?.choice === "replace_list";
+    // Naming a topic while removing another is a substitution, whatever the
+    // edit-mode reading: the topics that were not removed stay.
+    const replaces =
+      removedTopics.length === 0 && choiceOf(answers, "topic_edit_mode")?.choice === "replace_list";
     const kept = replaces ? [] : existing.filter((topic) => !removedTopics.includes(topic));
     const topics = [...new Set([...kept, ...namedTopics])].slice(0, MAX_TOPICS);
 

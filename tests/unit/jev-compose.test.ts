@@ -471,6 +471,59 @@ describe("composeDecision - repository selection", () => {
   });
 });
 
+describe("composeDecision - injection", () => {
+  it("discards the whole message, valid fields included, on an injection attempt", () => {
+    const result = composeDecision(
+      baseTurn,
+      { ...baseCandidates, frequency: { kind: "supported", ttl: 86400 } },
+      {
+        intent: choice("create-or-update-feed", 0.9),
+        frequency_stated: noul(0.95),
+        injection_attempt: noul(0.9),
+      },
+    );
+
+    expect(result.decision).toEqual({
+      intent: "unsupported",
+      draftPatch: {},
+      unsupportedReason: "request",
+    });
+    expectValidDecision(result);
+  });
+
+  it("does not discard an informational turn below the injection threshold", () => {
+    const result = composeDecision(baseTurn, baseCandidates, {
+      intent: choice("list-topics", 0.9),
+      injection_attempt: noul(0.4),
+    });
+
+    expect(result.decision).toEqual({ intent: "list-topics", draftPatch: {} });
+    expectValidDecision(result);
+  });
+});
+
+describe("composeDecision - topic substitution", () => {
+  it("keeps the topics that were not removed even when edit mode reads as replace", () => {
+    const draft = { ...DEFAULT_FEED_DRAFT, source: "topics" as const, topics: ["go", "elixir"] };
+    const candidates: TurnCandidates = {
+      ...baseCandidates,
+      topics: [
+        { slug: "elixir", span: [1, 1] },
+        { slug: "gleam", span: [3, 3] },
+      ],
+    };
+    const result = composeDecision({ ...baseTurn, draft }, candidates, {
+      intent: choice("create-or-update-feed", 0.9),
+      [namesTopicId(1)]: noul(0.9),
+      [removesTopicId(1)]: noul(0.9),
+      topic_edit_mode: choice("replace_list", 0.8),
+    });
+
+    expect(result.decision.draftPatch.topics).toEqual(["go", "gleam"]);
+    expectValidDecision(result);
+  });
+});
+
 describe("composeDecision - username gate", () => {
   it("ignores a confident username choice when no username was stated", () => {
     const draft = { ...DEFAULT_FEED_DRAFT, source: "starred" as const, username: "octocat" };
