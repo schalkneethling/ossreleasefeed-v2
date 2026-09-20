@@ -28,6 +28,7 @@ flowchart TD
     Umami[("Umami\n(analytics)")]
     Flagship[("Cloudflare Flagship\n(runtime experiment flag)")]
     WorkersAI[("Workers AI\n(structured intent only)")]
+    TypeSafe[("TypeSafe API\n(Jev judgments, behind a flag)")]
 
     Browser -- HTTPS --> SPA
     Browser -- "fetch (CORS-checked)" --> Worker
@@ -41,6 +42,7 @@ flowchart TD
     Experiments --> Flagship
     Assistant --> Flagship
     Assistant --> WorkersAI
+    Assistant -. flagged .-> TypeSafe
     Assistant --> GitHub
 
     Worker -. captured errors .-> Sentry
@@ -206,7 +208,7 @@ returns `Retry-After`, which the UI uses for exact retry guidance. Preview
 access should still be treated as public and temporary, not private testing.
 
 The assistant endpoint checks the same flag and two independent rate limits
-before invoking Workers AI. The model is a constrained semantic parser: it can
+before invoking an interpreter. The model is a constrained semantic parser: it can
 return only an intent, fields explicitly changed by the current message, an
 optional positional repository-selection action, and a categorical unsupported
 reason. It cannot propose workflow state, UI, product copy, markup, or a URL.
@@ -223,6 +225,42 @@ patch and no repository action, so capability and list questions cannot mutate
 the feed. Source inference ignores neutral optional values such as
 `topics: []` and `username: null`, preventing structured-output defaults from
 silently switching branches.
+
+Interpretation sits behind one seam (`worker/src/assistant/interpreter/`): an
+interpreter receives the validated turn, the bindings, and the request's abort
+signal, and returns the same constrained decision. Everything after the
+decision—planner, entity validation, copy, and URL encoding—is shared. The
+default interpreter is Llama on Workers AI. The `assistant-interpreter-jev`
+Flagship flag (default `false`, same evaluation context as
+`adaptive-feed-builder`) selects the Jev interpreter for a turn, but only when
+the `TYPESAFE_API_KEY` Worker secret is non-empty. A missing key, a missing
+binding, a disabled flag, or a failed flag evaluation all fall back to Llama;
+the Workers AI binding is required only when Llama is the chosen interpreter.
+
+The Jev interpreter calls the TypeSafe API directly
+(`POST https://api.typesafe.ai/v1/systemone`) with the exact model version
+`jev-1.13.0`, so interpretation does not move with an alias. Jev only judges:
+it answers probability and multiple-choice questions and never generates a
+value. Worker code extracts the topic, username, repository, count, and
+interval candidates from the message, and composes the answers into the same
+decision contract under fixed thresholds. The request state contains the
+current message, a summary of the validated draft (including open issues and
+the interval only when the user selected one), the question the application
+re-derives from the required decision, those code-built candidates, and static
+product facts. The transcript is never sent. A message judged to contain an
+injection attempt is discarded whole and answered as an unsupported request.
+
+The TypeSafe call has one four-second budget covering both attempts. It
+retries once, after 250 ms, only on `429` or a `5xx` status (including `529`),
+and stops early when the request is aborted. A client abort still returns
+`408`; the client's own deadline, an HTTP or network failure, or a body that is
+not a Jev response returns `502` and logs stage `typesafe` with only the error
+kind and status. Answers that cannot be composed log stage `model-output`, as
+invalid Llama output does; Llama failures keep stage `workers-ai`. Every
+failure log names the model that was used. If TypeSafe echoes a different model
+version the turn still succeeds and one `assistant_model_version_mismatch`
+warning is logged. The Ask composer discloses that typed messages are processed
+by TypeSafe and that conversation history is not sent.
 
 The browser and Worker share semantic state/draft invariants for source choice,
 topic editing, username entry, repository choice, settings editing, ready, and

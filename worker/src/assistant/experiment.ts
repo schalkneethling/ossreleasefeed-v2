@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { AppEnv } from "../lib/types";
 
 export const ADAPTIVE_FEED_BUILDER_FLAG = "adaptive-feed-builder";
+export const ASSISTANT_INTERPRETER_JEV_FLAG = "assistant-interpreter-jev";
 export const EXPERIMENT_KEY_HEADER = "X-Experiment-Key";
 
 export type ExperimentSurface = "local" | "preview" | "production";
@@ -41,7 +42,9 @@ export const readExperimentKey = (request: Request): string | null => {
   return value && EXPERIMENT_KEY.test(value) ? value : null;
 };
 
-export const evaluateAdaptiveFeedBuilder = async (ctx: Context<AppEnv>): Promise<boolean> => {
+// Every experiment flag fails closed: a missing key, a missing binding, or a
+// failed evaluation reads as `false`.
+const evaluateBooleanFlag = async (ctx: Context<AppEnv>, flag: string): Promise<boolean> => {
   const key = readExperimentKey(ctx.req.raw);
 
   if (!key || !ctx.env.FLAGS) {
@@ -49,7 +52,7 @@ export const evaluateAdaptiveFeedBuilder = async (ctx: Context<AppEnv>): Promise
   }
 
   try {
-    return await ctx.env.FLAGS.getBooleanValue(ADAPTIVE_FEED_BUILDER_FLAG, false, {
+    return await ctx.env.FLAGS.getBooleanValue(flag, false, {
       experimentKey: key,
       surface: deriveExperimentSurface(ctx.req.raw),
     });
@@ -57,3 +60,10 @@ export const evaluateAdaptiveFeedBuilder = async (ctx: Context<AppEnv>): Promise
     return false;
   }
 };
+
+export const evaluateAdaptiveFeedBuilder = (ctx: Context<AppEnv>): Promise<boolean> =>
+  evaluateBooleanFlag(ctx, ADAPTIVE_FEED_BUILDER_FLAG);
+
+// Selects the Jev interpreter for a turn; `false` keeps the Llama interpreter.
+export const evaluateJevInterpreter = (ctx: Context<AppEnv>): Promise<boolean> =>
+  evaluateBooleanFlag(ctx, ASSISTANT_INTERPRETER_JEV_FLAG);

@@ -87,6 +87,12 @@ access is sufficient. Verify the secret without printing its value:
 pnpm exec varlock load
 ```
 
+`TYPESAFE_API_KEY` is optional. `pnpm run dev:worker` passes it to the Worker,
+which uses it only when the `assistant-interpreter-jev` flag evaluates to
+`true`; without a key the assistant keeps the Llama interpreter. Production
+needs the key as a Worker secret, set from `worker/` with
+`wrangler secret put TYPESAFE_API_KEY`—never in `wrangler.toml`.
+
 Start the Worker and frontend in separate terminals:
 
 ```sh

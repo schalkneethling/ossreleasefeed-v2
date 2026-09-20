@@ -12,7 +12,13 @@ import {
   TOPIC_SLUG,
   USERNAME_PATTERN,
 } from "../assistant/entities";
-import { evaluateAdaptiveFeedBuilder, readExperimentKey } from "../assistant/experiment";
+import {
+  evaluateAdaptiveFeedBuilder,
+  evaluateJevInterpreter,
+  readExperimentKey,
+} from "../assistant/experiment";
+import { JEV_MODEL, JevClientError } from "../assistant/interpreter/jev/client";
+import { interpretWithJev } from "../assistant/interpreter/jev/index";
 import { interpretWithLlama, MODEL } from "../assistant/interpreter/llama";
 import { AssistantModelError, type Interpreter } from "../assistant/interpreter/types";
 import {
@@ -51,6 +57,7 @@ const GITHUB_LOOKUP_TIMEOUT = Duration.seconds(10);
 
 type AssistantFailureStage =
   | "workers-ai"
+  | "typesafe"
   | "model-output"
   | "read-only-mutation"
   | "repository-action-context"
@@ -66,7 +73,37 @@ const errorProperty = (error: unknown, property: string): string | number | unde
   return typeof value === "string" || typeof value === "number" ? value : undefined;
 };
 
+type ChosenInterpreter = {
+  interpret: Interpreter;
+  model: string;
+  failureStage: Extract<AssistantFailureStage, "workers-ai" | "typesafe">;
+};
+
+const LLAMA_INTERPRETER: ChosenInterpreter = {
+  interpret: interpretWithLlama,
+  model: MODEL,
+  failureStage: "workers-ai",
+};
+
+const JEV_INTERPRETER: ChosenInterpreter = {
+  interpret: interpretWithJev,
+  model: JEV_MODEL,
+  failureStage: "typesafe",
+};
+
+// Jev needs both its runtime flag and a non-empty API key (local development
+// passes an empty variable when the key is not configured). Anything else
+// keeps the Llama interpreter.
+const chooseInterpreter = async (ctx: Context<AppEnv>): Promise<ChosenInterpreter> => {
+  const hasTypeSafeKey = (ctx.env.TYPESAFE_API_KEY ?? "").trim() !== "";
+
+  return hasTypeSafeKey && (await evaluateJevInterpreter(ctx))
+    ? JEV_INTERPRETER
+    : LLAMA_INTERPRETER;
+};
+
 const logAssistantFailure = (
+  ctx: Context<AppEnv>,
   stage: AssistantFailureStage,
   error?: unknown,
   intent?: ModelDecision["intent"],
@@ -75,9 +112,15 @@ const logAssistantFailure = (
   console.error({
     event: "assistant_turn_failure",
     stage,
-    model: MODEL,
+    // The interpreter chosen for this turn; Llama until a choice is recorded.
+    model: ctx.var.assistantModel ?? MODEL,
     ...(intent === undefined ? {} : { intent }),
-    ...(error instanceof Error ? { errorName: error.name, errorMessage: error.message } : {}),
+    // A Jev client failure reports its kind and status only.
+    ...(error instanceof JevClientError
+      ? { errorName: error.name, errorKind: error.kind }
+      : error instanceof Error
+        ? { errorName: error.name, errorMessage: error.message }
+        : {}),
     ...(errorProperty(error, "code") === undefined
       ? {}
       : { errorCode: errorProperty(error, "code") }),
@@ -477,7 +520,7 @@ const handleRepoSelectionAction = async (
     username === null ||
     !USERNAME_PATTERN.test(username)
   ) {
-    logAssistantFailure("repository-action-context", undefined, decision.intent);
+    logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
     return ctx.json({ error: "Assistant response was invalid" }, 502);
   }
 
@@ -577,16 +620,18 @@ assistantRoutes.post("/turn", async (ctx) => {
     return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
   }
 
-  if (!ctx.env.AI) {
+  const interpreter = await chooseInterpreter(ctx);
+
+  ctx.set("assistantModel", interpreter.model);
+
+  if (interpreter === LLAMA_INTERPRETER && !ctx.env.AI) {
     return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
   }
 
   let decision: ModelDecision;
 
   try {
-    const interpret: Interpreter = interpretWithLlama;
-
-    decision = await interpret(
+    decision = await interpreter.interpret(
       { ...payload, requiredDecision: requiredDecisionFor(payload) },
       ctx.env,
       ctx.req.raw.signal,
@@ -597,14 +642,15 @@ assistantRoutes.post("/turn", async (ctx) => {
     }
 
     logAssistantFailure(
-      error instanceof AssistantModelError ? "model-output" : "workers-ai",
+      ctx,
+      error instanceof AssistantModelError ? "model-output" : interpreter.failureStage,
       error,
     );
     return ctx.json({ error: "Assistant response was invalid" }, 502);
   }
 
   if (!isReadOnlyDecisionValid(decision)) {
-    logAssistantFailure("read-only-mutation", undefined, decision.intent);
+    logAssistantFailure(ctx, "read-only-mutation", undefined, decision.intent);
     return ctx.json({ error: "Assistant response was invalid" }, 502);
   }
 
@@ -620,7 +666,7 @@ assistantRoutes.post("/turn", async (ctx) => {
     const { source, username } = payload.draft;
 
     if (source !== "starred" || username === null) {
-      logAssistantFailure("repository-list-context", undefined, decision.intent);
+      logAssistantFailure(ctx, "repository-list-context", undefined, decision.intent);
       return ctx.json({ error: "Assistant response was invalid" }, 502);
     }
 
@@ -667,7 +713,7 @@ assistantRoutes.post("/turn", async (ctx) => {
       currentRepositorySelection?.kind !== "subset" ||
       normalizedModelPatch.repoSelection?.kind !== "subset"
     ) {
-      logAssistantFailure("repository-action-context", undefined, decision.intent);
+      logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
       return ctx.json({ error: "Assistant response was invalid" }, 502);
     }
 
@@ -684,7 +730,7 @@ assistantRoutes.post("/turn", async (ctx) => {
       const trustedRepository = allowedByKey.get(repository.toLowerCase());
 
       if (trustedRepository === undefined) {
-        logAssistantFailure("repository-action-context", undefined, decision.intent);
+        logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
         return ctx.json({ error: "Assistant response was invalid" }, 502);
       }
 

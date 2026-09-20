@@ -4,6 +4,8 @@ compatibility_date = "2026-07-15"
 compatibility_flags = ["nodejs_compat", "enable_request_signal"]
 workers_dev = true
 
+# Secrets are never stored here. The Jev interpreter's TYPESAFE_API_KEY is a
+# Worker secret in production: `wrangler secret put TYPESAFE_API_KEY`.
 [vars]
 APP_NAME = "ossreleasefeed"
 
