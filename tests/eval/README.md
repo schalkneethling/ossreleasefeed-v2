@@ -40,6 +40,9 @@ Credentials resolve through varlock (see `.env.schema`). Two transports exist:
 ```sh
 pnpm run eval:assistant
 
+# The held-out set (never tune against it)
+EVAL_FIXTURE_SET=v2-heldout pnpm run eval:assistant
+
 # A subset, by fixture id
 EVAL_FIXTURE_IDS=topic-source-only,prompt-injection pnpm run eval:assistant
 ```

@@ -33,7 +33,29 @@ import {
   type FixtureResult,
 } from "./score";
 
-const FIXTURE_VERSION = "adaptive-eval-v1";
+type FixtureSet = {
+  version: string;
+  fixtures: readonly AssistantModelEvalFixture[];
+};
+
+// v1 has been used for tuning and is a development set. The held-out set is
+// loaded lazily so this file does not depend on it existing.
+const loadFixtureSet = async (raw: string | undefined): Promise<FixtureSet> => {
+  if (raw === undefined || raw === "" || raw === "v1") {
+    return { version: "adaptive-eval-v1", fixtures: ADAPTIVE_MODEL_EVAL_V1 };
+  }
+
+  if (raw === "v2-heldout") {
+    const module = await import("../fixtures/assistant-model-eval-v2-heldout");
+
+    return {
+      version: "adaptive-eval-v2-heldout",
+      fixtures: module.ADAPTIVE_MODEL_EVAL_V2_HELDOUT,
+    };
+  }
+
+  throw new Error("EVAL_FIXTURE_SET must be v1 or v2-heldout");
+};
 const HARD_REQUEST_CAP = 80;
 const CHALLENGER_IDS = ["asks_for_information", "about_ui_visibility", "out_of_scope"] as const;
 
@@ -79,23 +101,26 @@ const resolveCredentials = (): CloudflareAiCredentials | null => {
 
 const credentials = resolveCredentials();
 
-const selectFixtures = (raw: string | undefined): readonly AssistantModelEvalFixture[] => {
+const selectFixtures = (
+  all: readonly AssistantModelEvalFixture[],
+  raw: string | undefined,
+): readonly AssistantModelEvalFixture[] => {
   const ids = (raw ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter((id) => id.length > 0);
 
   if (ids.length === 0) {
-    return ADAPTIVE_MODEL_EVAL_V1;
+    return all;
   }
 
-  const unknown = ids.filter((id) => !ADAPTIVE_MODEL_EVAL_V1.some((entry) => entry.id === id));
+  const unknown = ids.filter((id) => !all.some((entry) => entry.id === id));
 
   if (unknown.length > 0) {
     throw new Error(`EVAL_FIXTURE_IDS names unknown fixtures: ${unknown.join(", ")}`);
   }
 
-  return ADAPTIVE_MODEL_EVAL_V1.filter((entry) => ids.includes(entry.id));
+  return all.filter((entry) => ids.includes(entry.id));
 };
 
 const requestCap = (raw: string | undefined, fixtureCount: number): number => {
@@ -264,7 +289,8 @@ describe.skipIf(credentials === null)("Jev interpreter evaluation (offline, bill
       );
     }
 
-    const fixtures = selectFixtures(process.env.EVAL_FIXTURE_IDS);
+    const fixtureSet = await loadFixtureSet(process.env.EVAL_FIXTURE_SET);
+    const fixtures = selectFixtures(fixtureSet.fixtures, process.env.EVAL_FIXTURE_IDS);
     const cap = requestCap(process.env.EVAL_MAX_REQUESTS, fixtures.length);
 
     // One request per fixture; refuse before anything is sent.
@@ -309,9 +335,9 @@ describe.skipIf(credentials === null)("Jev interpreter evaluation (offline, bill
           choiceConfidence: CHOICE_CONFIDENCE_THRESHOLD,
           overallPassRate: OVERALL_PASS_RATE_GATE,
         },
-        fixtureVersion: FIXTURE_VERSION,
+        fixtureVersion: fixtureSet.version,
         fixtureCount: fixtures.length,
-        subset: fixtures.length !== ADAPTIVE_MODEL_EVAL_V1.length,
+        subset: fixtures.length !== fixtureSet.fixtures.length,
         httpRequestsSent: budget.sent,
       },
       summary,
