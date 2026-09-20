@@ -16,6 +16,8 @@ export {
   type FeedTtl,
 } from "../../../shared/adaptive-contracts";
 
+export const MAX_EXPLICIT_REPOSITORIES = 25;
+
 export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
   "explain-capabilities",

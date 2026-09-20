@@ -14,6 +14,15 @@ export const FEED_TTLS = [3600, 21600, 86400, 604800] as const;
 export type AdaptiveState = (typeof ADAPTIVE_STATES)[number];
 export type FeedTtl = (typeof FEED_TTLS)[number];
 
+export type AssistantRequiredDecision =
+  | "feed-source"
+  | "topic-selection"
+  | "github-username"
+  | "repository-selection"
+  | "feed-settings"
+  | "recovery"
+  | "complete-feed";
+
 export type FeedDraft = {
   source: "topics" | "starred" | null;
   topics: string[];

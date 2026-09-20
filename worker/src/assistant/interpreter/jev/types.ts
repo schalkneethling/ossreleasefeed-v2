@@ -1,11 +1,4 @@
-export type AssistantRequiredDecision =
-  | "feed-source"
-  | "topic-selection"
-  | "github-username"
-  | "repository-selection"
-  | "feed-settings"
-  | "recovery"
-  | "complete-feed";
+export type { AssistantRequiredDecision } from "../../../../../shared/adaptive-contracts";
 
 type Described = string | Record<string, unknown> | readonly unknown[];
 
