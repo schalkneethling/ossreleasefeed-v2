@@ -1564,3 +1564,106 @@ test.describe("adaptive feed suggested replies", () => {
     await expect(page.locator(".ask-feed__suggestions")).toHaveCount(0);
   });
 });
+
+test.describe("adaptive feed composer keyboard submission", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/experiments", (route) =>
+      route.fulfill({ json: { adaptiveFeedBuilder: true } }),
+    );
+    await page.route("**/api/topics/featured", (route) => route.fulfill({ json: topicsFixture }));
+  });
+
+  test("submits the composer on Enter through the same path as the Send button", async ({
+    page,
+  }) => {
+    let turnRequest: Record<string, unknown> | null = null;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      turnRequest = route.request().postDataJSON();
+      await route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"]),
+          message: "Your topic feed is ready.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/enter-token",
+          showUi: false,
+          ttlSelected: true,
+          suggestions: [],
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    const composer = page.getByLabel("Your request");
+
+    await composer.fill("Create a CSS feed");
+    await composer.press("Enter");
+
+    await expect.poll(() => turnRequest).not.toBeNull();
+    expect(turnRequest).toMatchObject({ message: "Create a CSS feed" });
+    await expect(composer).toHaveValue("");
+  });
+
+  test("inserts a newline on Shift+Enter without submitting", async ({ page }) => {
+    let turnRequestCount = 0;
+
+    await page.route("**/api/assistant/turn", async (route) => {
+      turnRequestCount += 1;
+      await route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"]),
+          message: "Your topic feed is ready.",
+          issues: [],
+          feedUrl: "https://worker.example/feed/shift-enter-token",
+          showUi: false,
+          ttlSelected: true,
+          suggestions: [],
+        },
+      });
+    });
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    const composer = page.getByLabel("Your request");
+
+    await composer.fill("Create a CSS feed");
+    await composer.press("Shift+Enter");
+    await composer.type("and a JS feed");
+
+    await expect(composer).toHaveValue(/\n/);
+    expect(turnRequestCount).toBe(0);
+  });
+
+  test("describes the Enter-to-send behaviour for assistive technology", async ({ page }) => {
+    await page.route("**/api/assistant/turn", (route) =>
+      route.fulfill({
+        json: {
+          state: "ready",
+          draft: topicDraft(["css"]),
+          message: "Your topic feed is ready.",
+          issues: [],
+          feedUrl: null,
+          showUi: false,
+          ttlSelected: true,
+          suggestions: [],
+        },
+      }),
+    );
+    await page.goto("/");
+
+    await page.getByRole("button", { name: /ask for a feed/i }).click();
+    const composer = page.getByLabel("Your request");
+    const hint = page.getByText("Press Enter to send, Shift+Enter for a new line.");
+
+    await expect(hint).toBeVisible();
+
+    const describedBy = await composer.getAttribute("aria-describedby");
+    const hintId = await hint.getAttribute("id");
+
+    expect(hintId).not.toBeNull();
+    expect(describedBy?.split(" ")).toContain(hintId);
+  });
+});

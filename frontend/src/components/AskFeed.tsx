@@ -86,6 +86,7 @@ export function AskFeed({
   const [submitting, setSubmitting] = useState(false);
   const inputId = useId();
   const counterId = useId();
+  const enterHintId = useId();
   const formLegendId = useId();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const experimentKeyRef = useRef(getExperimentKey());
@@ -363,7 +364,7 @@ export function AskFeed({
             {transcript.length > 0 ? "Your next message" : "Your request"}
           </label>
           <textarea
-            aria-describedby={counterId}
+            aria-describedby={`${counterId} ${enterHintId}`}
             aria-invalid={messageTooLong}
             className="ask-feed__input"
             id={inputId}
@@ -371,11 +372,37 @@ export function AskFeed({
               onComposerChange(event.target.value);
               setError(null);
             }}
+            onKeyDown={(event) => {
+              if (
+                event.key !== "Enter" ||
+                event.shiftKey ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.altKey
+              ) {
+                return;
+              }
+
+              if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                return;
+              }
+
+              event.preventDefault();
+
+              if (submitting || !composer.trim()) {
+                return;
+              }
+
+              void submitMessage(composer);
+            }}
             placeholder="Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours."
             ref={composerRef}
             rows={4}
             value={composer}
           />
+          <p className="ask-feed__rate-policy" id={enterHintId}>
+            Press Enter to send, Shift+Enter for a new line.
+          </p>
           <output
             aria-live="polite"
             className={`ask-feed__counter${messageTooLong ? " ask-feed__counter--exceeded" : ""}`}
