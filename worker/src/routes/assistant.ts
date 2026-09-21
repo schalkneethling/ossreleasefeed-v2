@@ -53,6 +53,8 @@ import { editableStateForDraft, isRepoSelectionComplete } from "../../../shared/
 
 export const assistantRoutes = new Hono<AppEnv>();
 
+export const ASSISTANT_INTERPRETER_HEADER = "X-Assistant-Interpreter";
+
 const MAX_BODY_BYTES = 8_192;
 // Conversation history is presentation-only client state and is not accepted
 // by this route or forwarded to the model. The validated draft and derived
@@ -617,6 +619,18 @@ const handleRepoSelectionAction = async (
     ),
   );
 };
+
+// Names what handled the turn (a model id, or the canned-suggestion path) so a
+// flag or key problem is visible in the network panel. It never carries content.
+assistantRoutes.use("/turn", async (ctx, next) => {
+  await next();
+
+  const interpreter = ctx.var.assistantModel;
+
+  if (interpreter !== undefined) {
+    ctx.res.headers.set(ASSISTANT_INTERPRETER_HEADER, interpreter);
+  }
+});
 
 assistantRoutes.post("/turn", async (ctx) => {
   if (!(await evaluateAdaptiveFeedBuilder(ctx))) {

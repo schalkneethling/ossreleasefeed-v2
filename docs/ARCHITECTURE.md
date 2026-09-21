@@ -273,7 +273,10 @@ a fixed (canned) decision and inference is skipped—no Workers AI binding,
 TypeSafe key, or model call is needed—but the rate limits still apply because
 several of these decisions call GitHub, and the decision then runs through the
 same planner code as a model decision. The same words anywhere else are
-interpreted like any other message. The Jev composer also reports hints:
+interpreted like any other message. Each turn response names what
+handled it in an `X-Assistant-Interpreter` header (a model id, or
+`canned-suggestion`), so a flag or key problem is visible in the network panel;
+the header never carries content and is absent when no interpreter was chosen. The Jev composer also reports hints:
 catalogue strings for a source, an all-repositories request, or a supported
 interval whose judgment fell just short of its threshold and was therefore not
 applied. Hints are listed first, then the catalogue, de-duplicated and capped

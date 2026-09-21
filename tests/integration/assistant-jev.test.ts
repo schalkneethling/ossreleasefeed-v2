@@ -954,3 +954,37 @@ describe("POST /api/assistant/turn suggested replies", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 });
+
+describe("POST /api/assistant/turn interpreter header", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names Jev when the flag and key select it", async () => {
+    useValidGitHubTopics();
+    useTypeSafe(() => HttpResponse.json(jevBody(oneShotAnswers())));
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(assistantRequest(ONE_SHOT), bindings);
+
+    expect(response.headers.get("X-Assistant-Interpreter")).toBe(JEV_MODEL);
+    expect(response.headers.get("Access-Control-Expose-Headers")).toContain(
+      "X-Assistant-Interpreter",
+    );
+  });
+
+  it("names Llama when the Jev flag is off", async () => {
+    const { bindings } = makeAssistantEnv({ jevFlag: false });
+    const response = await postAssistant(assistantRequest("Create a feed"), bindings);
+
+    expect(response.headers.get("X-Assistant-Interpreter")).toBe(LLAMA_MODEL);
+  });
+
+  it("names the canned path for a chip and is absent before an interpreter is chosen", async () => {
+    const { bindings } = makeAssistantEnv();
+    const chip = await postAssistant(assistantRequest("Create a topic feed"), bindings);
+    const literal = await postAssistant(assistantRequest("show ui"), bindings);
+
+    expect(chip.headers.get("X-Assistant-Interpreter")).toBe("canned-suggestion");
+    expect(literal.headers.get("X-Assistant-Interpreter")).toBeNull();
+  });
+});
