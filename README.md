@@ -87,11 +87,20 @@ access is sufficient. Verify the secret without printing its value:
 pnpm exec varlock load
 ```
 
-`TYPESAFE_API_KEY` is optional. `pnpm run dev:worker` passes it to the Worker,
-which uses it only when the `assistant-interpreter-jev` flag evaluates to
-`true`; without a key the assistant keeps the Llama interpreter. Production
-needs the key as a Worker secret, set from `worker/` with
-`wrangler secret put TYPESAFE_API_KEY`—never in `wrangler.toml`.
+`worker/wrangler.toml` declares the secret names under `[secrets]`, so
+`wrangler dev` reads their values from the process environment that Varlock
+populates. They are never passed as command-line arguments (which any local
+process can read with `ps`) and never written to a `.dev.vars` file.
+
+`TYPESAFE_API_KEY` is optional locally: without it `wrangler dev` prints a
+missing-secret warning and the assistant keeps the Llama interpreter. With it,
+the Worker uses Jev only when the `assistant-interpreter-jev` flag evaluates to
+`true`. Production is stricter: `wrangler deploy` fails while a declared secret
+is missing on the deployed Worker, so create it first:
+
+```sh
+pnpm --filter worker exec wrangler secret put TYPESAFE_API_KEY
+```
 
 Start the Worker and frontend in separate terminals:
 
