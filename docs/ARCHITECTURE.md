@@ -27,8 +27,7 @@ flowchart TD
     Sentry[("Sentry\n(error tracking)")]
     Umami[("Umami\n(analytics)")]
     Flagship[("Cloudflare Flagship\n(runtime experiment flag)")]
-    WorkersAI[("Workers AI\n(structured intent only)")]
-    TypeSafe[("TypeSafe API\n(Jev judgments, behind a flag)")]
+    TypeSafe[("TypeSafe API\n(Jev judgments only)")]
 
     Browser -- HTTPS --> SPA
     Browser -- "fetch (CORS-checked)" --> Worker
@@ -41,8 +40,7 @@ flowchart TD
     Starred --> GitHub
     Experiments --> Flagship
     Assistant --> Flagship
-    Assistant --> WorkersAI
-    Assistant -. flagged .-> TypeSafe
+    Assistant --> TypeSafe
     Assistant --> GitHub
 
     Worker -. captured errors .-> Sentry
@@ -220,22 +218,19 @@ fail closed; disabling the flag makes new assistant turns return `404`.
 The Worker sends the model only the current message and the authoritative
 draft, issues, interval-selection flag, and application-derived required
 decision. The locally retained transcript is presentation state and is not
-trusted or forwarded to the model. Informational intents must contain an empty
-patch and no repository action, so capability and list questions cannot mutate
-the feed. Source inference ignores neutral optional values such as
-`topics: []` and `username: null`, preventing structured-output defaults from
-silently switching branches.
+trusted or forwarded to the model. Informational intents carry an empty
+patch and no repository action by construction, so capability and list
+questions cannot mutate the feed.
 
 Interpretation sits behind one seam (`worker/src/assistant/interpreter/`): an
 interpreter receives the validated turn, the bindings, and the request's abort
-signal, and returns the same constrained decision. Everything after the
-decision—planner, entity validation, copy, and URL encoding—is shared. The
-default interpreter is Llama on Workers AI. The `assistant-interpreter-jev`
-Flagship flag (default `false`, same evaluation context as
-`adaptive-feed-builder`) selects the Jev interpreter for a turn, but only when
-the `TYPESAFE_API_KEY` Worker secret is non-empty. A missing key, a missing
-binding, a disabled flag, or a failed flag evaluation all fall back to Llama;
-the Workers AI binding is required only when Llama is the chosen interpreter.
+signal, and returns the constrained decision contract (`ModelDecision`).
+Everything after the decision—planner, entity validation, copy, and URL
+encoding—reads only that contract. Jev is the interpreter. A turn that needs
+inference requires the `adaptive-feed-builder` flag and a non-empty
+`TYPESAFE_API_KEY` Worker secret; without the key the turn answers `503`
+after the rate limits, before any inference. A suggested reply answered
+without inference needs no key.
 
 The Jev interpreter calls the TypeSafe API directly
 (`POST https://api.typesafe.ai/v1/systemone`) with the exact model version
@@ -255,9 +250,8 @@ retries once, after 250 ms, only on `429` or a `5xx` status (including `529`),
 and stops early when the request is aborted. A client abort still returns
 `408`; the client's own deadline, an HTTP or network failure, or a body that is
 not a Jev response returns `502` and logs stage `typesafe` with only the error
-kind and status. Answers that cannot be composed log stage `model-output`, as
-invalid Llama output does; Llama failures keep stage `workers-ai`. Every
-failure log names the model that was used. If TypeSafe echoes a different model
+kind and status. Answers that cannot be composed log stage `model-output`. Every
+failure log names what handled the turn. If TypeSafe echoes a different model
 version the turn still succeeds and one `assistant_model_version_mismatch`
 warning is logged. The Ask composer discloses that typed messages are processed
 by TypeSafe and that conversation history is not sent.
@@ -269,8 +263,8 @@ response, so a suggestion always answers the question being shown; “Show UI”
 is left out while the interface is visible. A suggestion's text is exactly the
 message submitted when it is chosen, through the normal turn path. When that
 message arrives at the required decision that offers it, the planner supplies
-a fixed (canned) decision and inference is skipped—no Workers AI binding,
-TypeSafe key, or model call is needed—but the rate limits still apply because
+a fixed (canned) decision and inference is skipped—no TypeSafe key or model
+call is needed—but the rate limits still apply because
 several of these decisions call GitHub, and the decision then runs through the
 same planner code as a model decision. The same words anywhere else are
 interpreted like any other message. Each turn response names what
@@ -284,8 +278,7 @@ at four; the model never authors a suggestion. As a safety net, when Jev's
 confidence in the intent itself is below 0.4 the Worker does not act: it
 returns the request's state and draft unchanged (a completed feed keeps its
 URL) and asks the current question again. An injection discard takes
-precedence over that reply, and Llama reports no confidence, so it never
-triggers it.
+precedence over that reply.
 
 The browser and Worker share semantic state/draft invariants for source choice,
 topic editing, username entry, repository choice, settings editing, ready, and
@@ -319,18 +312,16 @@ so every candidate is a repository the user actually starred. Message tokens
 are compared with each starred name (exactly, with separators removed, with a
 trailing `.js` dropped, as a separated part of the name, or as the owner) under
 a small stop list and a 50-candidate cap. When every mention is the exact name
-of exactly one starred repository, the selection is made without a model call,
-on either interpreter. Otherwise, and only on the Jev path, one bounded second
-TypeSafe request carries just the message and at most 40 candidates, with one
+of exactly one starred repository, the selection is made without a model call.
+Otherwise one bounded second TypeSafe request carries just the message and at most 40 candidates, with one
 Noul per candidate (“does the message ask for this repository to be
 included?”); candidates judged at or above 0.7 are selected. The result
 replaces the existing subset when the interpreter read the message as a
 restriction and is merged with it otherwise, under the same 25-repository cap.
 If that request times out, fails, or returns an invalid body, the turn does not
 fail: it logs stage `typesafe-repositories` (kind and status only) and asks
-the person to choose, offering “Show me the repositories” first—the same
-reply an ambiguous match gets on the Llama path, where no second request is
-made. A caller abort during the second request still returns `408`.
+the person to choose, offering “Show me the repositories” first. A caller
+abort during the second request still returns `408`.
 
 Informational turns remain conversational. Feed-type questions return a short
 text explanation, and topic-discovery questions use the current featured-topic

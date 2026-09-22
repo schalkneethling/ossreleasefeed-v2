@@ -2,7 +2,19 @@ import { Either } from "effect";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../../worker/src/index";
-import { DEFAULT_FEED_DRAFT } from "../../worker/src/assistant/contracts";
+import {
+  DEFAULT_FEED_DRAFT,
+  type AssistantTurnRequest,
+  type ModelDecision,
+} from "../../worker/src/assistant/contracts";
+import { candidatesFor } from "../../worker/src/assistant/interpreter/jev/candidates";
+import {
+  buildJevQuestions,
+  namesTopicId,
+  removesTopicId,
+} from "../../worker/src/assistant/interpreter/jev/questions";
+import { FREQUENCY_LABELS } from "../../worker/src/assistant/interpreter/jev/state";
+import type { JevAnswer } from "../../worker/src/assistant/interpreter/jev/types";
 import { decodeFeedConfig, encodeFeedConfig } from "../../worker/src/lib/config";
 import type { FeedConfig } from "../../worker/src/lib/schemas";
 import { captureFeedError } from "../../worker/src/lib/sentry";
@@ -29,44 +41,25 @@ const fetchApp = (url: string, init?: RequestInit, bindings: WorkerBindings = en
   app.fetch(new Request(url, init), bindings, executionContext);
 
 const experimentKey = "test-experiment-key-1234";
+const TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone";
+const TYPESAFE_API_KEY = "test-typesafe-key";
+const JEV_MODEL = "jev-1.13.0";
 
 const makeAssistantEnv = ({
   enabled = true,
-  aiResponse = {
-    intent: "create-or-update-feed",
-    draftPatch: {
-      source: "topics",
-      topics: ["css", "javascript", "typescript"],
-      ttl: 86400,
-      activityType: "releases",
-    },
-  },
   clientAllowed = true,
   networkAllowed = true,
-  aiError,
+  // `null` leaves the binding out; `undefined` would fall back to the default.
+  typesafeKey = TYPESAFE_API_KEY,
 }: {
   enabled?: boolean;
-  aiResponse?: unknown;
   clientAllowed?: boolean;
   networkAllowed?: boolean;
-  aiError?: Error;
+  typesafeKey?: string | null;
 } = {}) => {
   const getBooleanValue = vi.fn<
     (flag: string, defaultValue: boolean, context: Record<string, string>) => Promise<boolean>
   >(async () => enabled);
-  const run = vi.fn<
-    (
-      model: string,
-      input: Record<string, unknown>,
-      options?: { signal?: AbortSignal },
-    ) => Promise<unknown>
-  >(async () => {
-    if (aiError) {
-      throw aiError;
-    }
-
-    return { response: aiResponse };
-  });
   const clientLimit = vi.fn<(options: { key: string }) => Promise<{ success: boolean }>>(
     async () => ({ success: clientAllowed }),
   );
@@ -75,22 +68,200 @@ const makeAssistantEnv = ({
   );
   const bindings: WorkerBindings = {
     ...env,
+    ...(typesafeKey === null ? {} : { TYPESAFE_API_KEY: typesafeKey }),
     FLAGS: { getBooleanValue } as unknown as Flagship,
-    AI: { run },
     ASSISTANT_CLIENT_RATE_LIMITER: { limit: clientLimit },
     ASSISTANT_NETWORK_RATE_LIMITER: { limit: networkLimit },
   };
 
-  return { bindings, getBooleanValue, run, clientLimit, networkLimit };
+  return { bindings, getBooleanValue, clientLimit, networkLimit };
 };
 
-const assistantRequest = (message: string) => ({
+const assistantRequest = (message: string): AssistantTurnRequest => ({
   message,
-  state: "idle" as const,
+  state: "idle",
   draft: DEFAULT_FEED_DRAFT,
   issues: [],
   ttlSelected: false,
 });
+
+const noul = (probability: number): JevAnswer => ({ type: "noul", noul: probability });
+
+const choice = (label: string, confidence: number): JevAnswer => ({
+  type: "choice",
+  choice: label,
+  confidence,
+  probabilities: { [label]: confidence },
+});
+
+// The Jev answer set from which the composer produces the given decision for
+// the given turn: every question the Worker would ask, answered "not stated",
+// then the signals the decision needs. Values Jev only selects among (topics,
+// usernames, owner/repo names, counts, parsed intervals) must be present in the
+// message, since the composer takes them from the code-built candidates.
+const answersForDecision = (
+  { message, draft }: Pick<AssistantTurnRequest, "message" | "draft">,
+  decision: ModelDecision,
+): Record<string, JevAnswer> => {
+  const candidates = candidatesFor(message, draft.topics);
+  const questions = buildJevQuestions(draft, candidates);
+  const answers: Record<string, JevAnswer> = {};
+
+  for (const [id, question] of Object.entries(questions)) {
+    const [firstLabel = ""] = Object.keys(question.criteria);
+
+    answers[id] = question.type === "noul" ? noul(0.02) : choice(firstLabel, 0.2);
+  }
+
+  const patch = decision.draftPatch;
+  const unsupportedInterval =
+    decision.intent === "unsupported" && decision.unsupportedReason === "interval";
+
+  // An unsupported interval is composed from a feed request whose stated
+  // frequency parses to an unsupported value.
+  answers.intent = choice(unsupportedInterval ? "create-or-update-feed" : decision.intent, 0.95);
+
+  if (patch.source !== undefined) {
+    answers.source_stated = noul(0.95);
+    answers.source_value = choice(patch.source, 0.95);
+  }
+
+  if (patch.topics !== undefined && patch.topics.length > 0) {
+    const topics = patch.topics;
+    const replaces = draft.topics.length > 0 && !draft.topics.some((slug) => topics.includes(slug));
+
+    for (const slug of topics) {
+      if (draft.topics.includes(slug) && !replaces) {
+        continue;
+      }
+
+      const index = candidates.topics.findIndex(
+        (candidate) => candidate.slug === slug && candidate.span !== null,
+      );
+
+      if (index === -1) {
+        throw new Error(`"${slug}" is not a topic named in the message`);
+      }
+
+      answers[namesTopicId(index)] = noul(0.95);
+    }
+
+    if (draft.topics.length > 0) {
+      answers.topic_edit_mode = choice(replaces ? "replace_list" : "add_to_list", 0.9);
+
+      if (!replaces) {
+        draft.topics.forEach((slug, index) => {
+          if (!topics.includes(slug)) {
+            answers[removesTopicId(index)] = noul(0.95);
+          }
+        });
+      }
+    }
+  }
+
+  if (patch.username !== undefined && patch.username !== null) {
+    if (!candidates.usernames.includes(patch.username)) {
+      throw new Error(`"${patch.username}" is not a username candidate of the message`);
+    }
+
+    answers.username_stated = noul(0.95);
+    answers.username = choice(patch.username, 0.95);
+  }
+
+  if (patch.repoSelection?.kind === "all") {
+    throw new Error("Jev reports every starred repository as an action, never as a patch");
+  }
+
+  if (patch.repoSelection?.kind === "subset") {
+    const expected = [...patch.repoSelection.repos].sort();
+    const explicit = [...candidates.repositories].sort();
+
+    if (JSON.stringify(expected) !== JSON.stringify(explicit)) {
+      throw new Error("a repository subset must be the message's explicit owner/repo names");
+    }
+  }
+
+  if (patch.activityType !== undefined) {
+    answers.activity_stated = noul(0.95);
+    answers.activity_value = choice(patch.activityType, 0.95);
+  }
+
+  if (patch.ttl !== undefined || unsupportedInterval) {
+    const parsed = candidates.frequency;
+
+    answers.frequency_stated = noul(0.95);
+
+    if (unsupportedInterval) {
+      if (parsed === null) {
+        answers.frequency_value = choice("other", 0.9);
+      } else if (parsed.kind !== "unsupported") {
+        throw new Error("the message states a supported interval");
+      }
+    } else if (patch.ttl !== undefined) {
+      if (parsed === null) {
+        answers.frequency_value = choice(FREQUENCY_LABELS[patch.ttl], 0.9);
+      } else if (parsed.kind !== "supported" || parsed.ttl !== patch.ttl) {
+        throw new Error("the message states a different interval");
+      }
+    }
+  }
+
+  const action = decision.repoSelectionAction;
+
+  if (action?.kind === "all") {
+    answers.wants_all_starred = noul(0.95);
+  }
+
+  if (action?.kind === "first") {
+    if (candidates.firstCount !== action.count) {
+      throw new Error(`the message does not ask for the first ${action.count}`);
+    }
+
+    answers.asks_first_n = noul(0.95);
+  }
+
+  if (action?.kind === "replace") {
+    answers.replaces_selection = noul(0.95);
+  }
+
+  return answers;
+};
+
+const jevBody = (answers: Record<string, JevAnswer>) => ({
+  model: JEV_MODEL,
+  answers,
+  usage: { input_tokens: 1200, output_tokens: 40 },
+});
+
+type CapturedRequest = { authorization: string | null; body: Record<string, unknown> };
+
+// Answers every TypeSafe request with the given body and records the requests.
+const useTypeSafe = (respond: () => Response = () => HttpResponse.json(jevBody({}))) => {
+  const requests: CapturedRequest[] = [];
+
+  server.use(
+    http.post(TYPESAFE_URL, async ({ request }) => {
+      requests.push({
+        authorization: request.headers.get("Authorization"),
+        body: (await request.json()) as Record<string, unknown>,
+      });
+
+      return respond();
+    }),
+  );
+
+  return requests;
+};
+
+// Stubs TypeSafe so the interpreter composes exactly this decision for the
+// turn; returns the recorded requests.
+const useDecision = (
+  turn: Pick<AssistantTurnRequest, "message" | "draft">,
+  decision: ModelDecision,
+) => useTypeSafe(() => HttpResponse.json(jevBody(answersForDecision(turn, decision))));
+
+const jevState = (request: CapturedRequest | undefined): Record<string, unknown> =>
+  (request?.body.state ?? {}) as Record<string, unknown>;
 
 const atomFixture = `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -544,11 +715,12 @@ describe("POST /api/assistant/turn", () => {
     );
 
   it("returns 404 before inference when the runtime flag is disabled", async () => {
-    const { bindings, run } = makeAssistantEnv({ enabled: false });
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv({ enabled: false });
     const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
 
     expect(response.status).toBe(404);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
   it("creates a validated canonical topic feed URL", async () => {
@@ -561,13 +733,20 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv();
-    const response = await postAssistant(
-      assistantRequest(
-        "Build a topic feed for CSS, JavaScript, and TypeScript with a daily refresh.",
-      ),
-      bindings,
+    const turn = assistantRequest(
+      "Build a topic feed for CSS, JavaScript, and TypeScript with a daily refresh.",
     );
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        source: "topics",
+        topics: ["css", "javascript", "typescript"],
+        ttl: 86400,
+        activityType: "releases",
+      },
+    });
+    const { bindings, clientLimit, networkLimit } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
     const expectedToken = encodeFeedConfig({
       source: "topics",
@@ -591,14 +770,10 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
       ttlSelected: true,
     });
-    expect(run).toHaveBeenCalledWith(
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      expect.objectContaining({
-        temperature: 0,
-        response_format: expect.objectContaining({ type: "json_schema" }),
-      }),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
+    expect(response.headers.get("X-Assistant-Interpreter")).toBe(JEV_MODEL);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.authorization).toBe(`Bearer ${TYPESAFE_API_KEY}`);
+    expect(requests[0]?.body.model).toBe(JEV_MODEL);
     expect(clientLimit).toHaveBeenCalledWith({ key: experimentKey });
     expect(networkLimit).toHaveBeenCalledWith({ key: "unknown-network" });
   });
@@ -613,22 +788,19 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: ["javascript", "css"], ttl: 86400 },
-      },
+    const turn: AssistantTurnRequest = {
+      message: "Create a feed for JavaScript and CSS that updates every 24 hours",
+      state: "edit-topics",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
+      issues: [],
+      ttlSelected: false,
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "topics", topics: ["javascript", "css"], ttl: 86400 },
     });
-    const response = await postAssistant(
-      {
-        message: "Create a feed for JavaScript and CSS that updates every 24 hours",
-        state: "edit-topics",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
-        issues: [],
-        ttlSelected: false,
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -645,7 +817,7 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.message).toBe("Your topic feed is ready.");
     expect(payload.feedUrl).toContain("/feed/");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("applies an interval-only follow-up from the model decision", async () => {
@@ -658,32 +830,22 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          topics: [],
-          username: null,
-          repoSelection: null,
-          ttl: 86400,
-          format: "atom",
-          topicOperator: "or",
-        },
+    const turn: AssistantTurnRequest = {
+      // Not the exact "24 hours" suggested reply, which is answered without the model.
+      ...assistantRequest("Every 24 hours please"),
+      state: "edit-settings",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "topics",
+        topics: ["css", "javascript"],
       },
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { ttl: 86400 },
     });
-    const response = await postAssistant(
-      {
-        // Not the exact "24 hours" suggested reply, which is answered without the model.
-        ...assistantRequest("Every 24 hours please"),
-        state: "edit-settings",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "topics",
-          topics: ["css", "javascript"],
-        },
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -695,140 +857,42 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: true,
     });
     expect(payload.feedUrl).toContain("/feed/");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("sends only the authoritative current turn to the model", async () => {
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-settings",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(
-      {
-        message: "list available options",
-        state: "edit-settings",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
-        issues: [],
-        ttlSelected: false,
-      },
-      bindings,
-    );
+    const turn: AssistantTurnRequest = {
+      message: "list available options",
+      state: "edit-settings",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+      issues: [],
+      ttlSelected: false,
+    };
+    const requests = useDecision(turn, { intent: "list-settings", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
 
     expect(response.status).toBe(200);
-    const [, input] = run.mock.calls[0] as [
-      string,
-      { messages: Array<{ role: string; content: string }> },
-    ];
-    expect(input.messages).toHaveLength(2);
-    expect(input.messages[1].role).toBe("user");
-    expect(JSON.parse(input.messages[1].content)).toEqual({
-      currentTurn: {
-        message: "list available options",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
-        issues: [],
-        ttlSelected: false,
-        requiredDecision: "feed-settings",
-      },
+    expect(requests).toHaveLength(1);
+    expect(jevState(requests[0])).toMatchObject({
+      user_message: { text: "list available options" },
+      app_just_asked: { decision: "feed-settings" },
+      feed_so_far: { feed_type: "GitHub topics", topics: ["css"], update_frequency: null },
     });
-  });
-
-  it("rejects an invalid model decision without validating topics", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: ["css"] },
-        unexpected: "field",
-      },
-    });
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
-
-    expect(response.status).toBe(502);
-    expect(githubCalls).toHaveLength(0);
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "assistant_turn_failure",
-        stage: "model-output",
-        errorMessage: "invalid-decision",
-      }),
-    );
-    consoleError.mockRestore();
-  });
-
-  it("rejects mutations attached to read-only model intents", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: { ttl: 86400 },
-      },
-    });
-    const response = await postAssistant(assistantRequest("Show me the controls"), bindings);
-
-    expect(response.status).toBe(502);
-    expect(githubCalls).toHaveLength(0);
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "assistant_turn_failure",
-        stage: "read-only-mutation",
-        intent: "show-ui",
-      }),
-    );
-    consoleError.mockRestore();
-  });
-
-  it("ignores neutral optional fields materialized on a read-only intent", async () => {
-    const draft = { ...DEFAULT_FEED_DRAFT, source: "topics" as const, topics: ["css"] };
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "explain-capabilities",
-        draftPatch: {
-          topics: [],
-          username: null,
-          repoSelection: null,
-          format: "atom",
-          topicOperator: "or",
-        },
-      },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("What else can I create?"),
-        state: "edit-settings",
-        draft,
-      },
-      bindings,
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload).toMatchObject({ state: "edit-settings", draft, feedUrl: null });
+    expect(JSON.stringify(requests[0]?.body)).not.toMatch(/transcript|history|conversation/iu);
   });
 
   it("rejects an inconsistent client snapshot before invoking the model", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "topics",
-          topics: ["css"],
-          activityType: "releases",
-          ttl: 3600,
-        },
-      },
-    });
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant(
       { ...assistantRequest("Create a CSS feed"), state: "edit-topics" as const },
       bindings,
     );
 
     expect(response.status).toBe(400);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
     expect(githubCalls).toHaveLength(0);
   });
 
@@ -836,16 +900,15 @@ describe("POST /api/assistant/turn", () => {
     server.use(
       http.get("https://api.github.com/search/topics", () => HttpResponse.json({ items: [] })),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: ["not-a-real-topic"] },
-      },
+    const turn = assistantRequest("Create a not-a-real-topic feed");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "topics", topics: ["not-a-real-topic"] },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a not-a-real-topic feed"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -856,13 +919,10 @@ describe("POST /api/assistant/turn", () => {
 
   it("answers capability questions without inventing a feed", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "explain-capabilities",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(assistantRequest("What feeds can I create"), bindings);
+    const turn = assistantRequest("What feeds can I create");
+    const requests = useDecision(turn, { intent: "explain-capabilities", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -870,32 +930,28 @@ describe("POST /api/assistant/turn", () => {
     expect(payload.feedUrl).toBeNull();
     expect(payload.showUi).toBe(false);
     expect(payload.message).toContain("GitHub topic");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(githubCalls).toHaveLength(0);
   });
 
   it("keeps a ready feed valid while answering a capability question", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "explain-capabilities",
-        draftPatch: {},
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("What else can this app do?"),
+      state: "ready",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "topics",
+        topics: ["css"],
+        ttl: 86400,
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("What else can this app do?"),
-        state: "ready",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "topics",
-          topics: ["css"],
-          ttl: 86400,
-        },
-        ttlSelected: true,
-      },
-      bindings,
-    );
+      ttlSelected: true,
+    };
+
+    useDecision(turn, { intent: "explain-capabilities", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -912,25 +968,19 @@ describe("POST /api/assistant/turn", () => {
 
   it("keeps a misplaced capability intent read-only inside repository selection", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "explain-capabilities",
-        draftPatch: {},
-      },
-    });
     const draft = {
       ...DEFAULT_FEED_DRAFT,
       source: "starred" as const,
       username: "octocat",
     };
-    const response = await postAssistant(
-      {
-        ...assistantRequest("What are the available options?"),
-        state: "choose-repos",
-        draft,
-      },
-      bindings,
-    );
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("What are the available options?"),
+      state: "choose-repos",
+      draft,
+    };
+    const requests = useDecision(turn, { intent: "explain-capabilities", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -942,28 +992,25 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("GitHub topic");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(githubCalls).toHaveLength(0);
   });
 
   it("enters the starred username step after a capabilities turn", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-      },
+    const turn: AssistantTurnRequest = {
+      message: "Ok, I want to create a feed from my starred repositories",
+      state: "choose-source",
+      draft: DEFAULT_FEED_DRAFT,
+      issues: [],
+      ttlSelected: false,
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred" },
     });
-    const response = await postAssistant(
-      {
-        message: "Ok, I want to create a feed from my starred repositories",
-        state: "choose-source",
-        draft: DEFAULT_FEED_DRAFT,
-        issues: [],
-        ttlSelected: false,
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -976,22 +1023,19 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("Which GitHub username should I use?");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(githubCalls).toHaveLength(0);
   });
 
   it("[starred_001] asks for a username for the feed-of-my-starred-repos wording", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-      },
+    const turn = assistantRequest("I want to create a feed of my starred repos");
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred" },
     });
-    const response = await postAssistant(
-      assistantRequest("I want to create a feed of my starred repos"),
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1004,23 +1048,20 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("Which GitHub username should I use?");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(githubCalls).toHaveLength(0);
   });
 
   it("[starred_004] ignores an unsolicited repository action before a username is available", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-        repoSelectionAction: { kind: "first", count: 10 },
-      },
+    const turn = assistantRequest("I want a feed from the first 10 of my starred repos");
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred" },
+      repoSelectionAction: { kind: "first", count: 10 },
     });
-    const response = await postAssistant(
-      assistantRequest("I want to create a feed from my starred repos"),
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1033,27 +1074,24 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("Which GitHub username should I use?");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
     expect(githubCalls).toHaveLength(0);
   });
 
   it("ignores an unsolicited positional action while applying a requested username", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { username: "octocat" },
-        repoSelectionAction: { kind: "first", count: 5 },
-      },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("octocat, the first 5"),
+      state: "enter-username",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "starred" },
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { username: "octocat" },
+      repoSelectionAction: { kind: "first", count: 5 },
     });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("octocat"),
-        state: "enter-username",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "starred" },
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1066,31 +1104,28 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("Do you want all of their starred repositories");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("replaces a repository subset when the model returns an explicit all action", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {},
-        repoSelectionAction: { kind: "all" },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Include all starred repositories"),
+      state: "edit-settings",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["example/repo"] },
       },
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {},
+      repoSelectionAction: { kind: "all" },
     });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Include all starred repositories"),
-        state: "edit-settings",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "subset", repos: ["example/repo"] },
-        },
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1103,7 +1138,7 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(payload.message).toContain("include all of @octocat's starred repositories");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("lists current featured topics conversationally without revealing controls", async () => {
@@ -1119,13 +1154,12 @@ describe("POST /api/assistant/turn", () => {
         }),
       ),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-topics",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
+    const turn = assistantRequest("What topics are available?");
+
+    useDecision(turn, { intent: "list-topics", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1144,13 +1178,12 @@ describe("POST /api/assistant/turn", () => {
     server.use(
       http.get("https://api.github.com/search/topics", () => HttpResponse.json({ items: [] })),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-topics",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(assistantRequest("What topics are available?"), bindings);
+    const turn = assistantRequest("What topics are available?");
+
+    useDecision(turn, { intent: "list-topics", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1161,16 +1194,12 @@ describe("POST /api/assistant/turn", () => {
 
   it("lists update frequencies before a topic is selected without changing state", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-settings",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(
-      assistantRequest("What update frequencies are available?"),
-      bindings,
-    );
+    const turn = assistantRequest("What update frequencies are available?");
+
+    useDecision(turn, { intent: "list-settings", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1188,20 +1217,16 @@ describe("POST /api/assistant/turn", () => {
 
   it("lists update frequencies conversationally without revealing controls", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-settings",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("List the update frequency options"),
-        state: "edit-settings",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
-      },
-      bindings,
-    );
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("List the update frequency options"),
+      state: "edit-settings",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+    };
+
+    useDecision(turn, { intent: "list-settings", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1226,16 +1251,15 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: ["css", "javascript", "typescript"] },
-      },
+    const turn = assistantRequest("Use CSS, JavaScript, and TypeScript");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "topics", topics: ["css", "javascript", "typescript"] },
     });
-    const response = await postAssistant(
-      assistantRequest("Use CSS, JavaScript, and TypeScript"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1253,21 +1277,15 @@ describe("POST /api/assistant/turn", () => {
 
   it("reveals trusted components for the current conversation state on request", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: {},
-      },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Show me the interface"),
-        state: "edit-topics",
-        draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
-        issues: ["Include at least one topic."],
-      },
-      bindings,
-    );
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Show me the interface"),
+      state: "edit-topics",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "topics" },
+      issues: ["Include at least one topic."],
+    };
+    const requests = useDecision(turn, { intent: "show-ui", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1279,17 +1297,13 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("opens editable settings instead of the ready summary when UI is requested for a complete topic feed", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: {},
-      },
-    });
+    const requests = useTypeSafe();
+    const { bindings, clientLimit, networkLimit } = makeAssistantEnv();
     const response = await postAssistant(
       {
         ...assistantRequest("Show UI"),
@@ -1316,19 +1330,15 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: true,
     });
     expect(githubCalls).toHaveLength(0);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
     expect(clientLimit).not.toHaveBeenCalled();
     expect(networkLimit).not.toHaveBeenCalled();
   });
 
   it("hides the interface without discarding a completed feed", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: {},
-      },
-    });
+    const requests = useTypeSafe();
+    const { bindings, clientLimit, networkLimit } = makeAssistantEnv();
     const response = await postAssistant(
       {
         ...assistantRequest("hide ui"),
@@ -1356,31 +1366,25 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.feedUrl).toContain("/feed/");
     expect(githubCalls).toHaveLength(0);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
     expect(clientLimit).not.toHaveBeenCalled();
     expect(networkLimit).not.toHaveBeenCalled();
   });
 
   it("uses the model's hide UI intent for natural-language variants", async () => {
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "hide-ui",
-        draftPatch: {},
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Please close the controls for now"),
+      state: "edit-settings",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "topics",
+        topics: ["css"],
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Please close the controls for now"),
-        state: "edit-settings",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "topics",
-          topics: ["css"],
-        },
-        ttlSelected: true,
-      },
-      bindings,
-    );
+      ttlSelected: true,
+    };
+    const requests = useDecision(turn, { intent: "hide-ui", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1391,17 +1395,13 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: true,
     });
     expect(payload.feedUrl).toContain("/feed/");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("reveals the username field when UI is requested for a starred draft", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: {},
-      },
-    });
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant(
       {
         ...assistantRequest("Show UI"),
@@ -1421,29 +1421,23 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
   it("reveals the repository picker when the model identifies repository discovery", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-repositories",
-        draftPatch: {},
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Please list the repositories"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Please list the repositories"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-        },
-      },
-      bindings,
-    );
+    };
+    const requests = useDecision(turn, { intent: "list-repositories", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1461,17 +1455,13 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.message).toContain("Here are @octocat's starred repositories");
     expect(githubCalls).toHaveLength(0);
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("reveals the repository picker when UI is requested for a starred username", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "show-ui",
-        draftPatch: {},
-      },
-    });
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant(
       {
         ...assistantRequest("Show UI"),
@@ -1491,18 +1481,17 @@ describe("POST /api/assistant/turn", () => {
       showUi: true,
     });
     expect(githubCalls).toHaveLength(0);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
   it("asks for topics without revealing controls for an incomplete topic request", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: [] },
-      },
-    });
-    const response = await postAssistant(assistantRequest("I want a topic feed"), bindings);
+    const turn = assistantRequest("I want a topic feed");
+
+    useDecision(turn, { intent: "create-or-update-feed", draftPatch: { source: "topics" } });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1526,26 +1515,25 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { topics: ["typescript"], ttl: 86400 },
+    const turn: AssistantTurnRequest = {
+      message: "Use TypeScript instead and update every 24 hours",
+      state: "ready",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "topics",
+        topics: ["css"],
       },
+      issues: [],
+      ttlSelected: true,
+    };
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { topics: ["typescript"], ttl: 86400 },
     });
-    const response = await postAssistant(
-      {
-        message: "Use TypeScript instead and update every 24 hours",
-        state: "ready",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "topics",
-          topics: ["css"],
-        },
-        issues: [],
-        ttlSelected: true,
-      },
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
     const previousToken = encodeFeedConfig({
       source: "topics",
@@ -1584,26 +1572,22 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {},
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Generate the feed"),
+      state: "edit-settings",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "topics",
+        topics: ["css"],
+        ttl: 86400,
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Generate the feed"),
-        state: "edit-settings",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "topics",
-          topics: ["css"],
-          ttl: 86400,
-        },
-        ttlSelected: true,
-      },
-      bindings,
-    );
+      ttlSelected: true,
+    };
+
+    useDecision(turn, { intent: "create-or-update-feed", draftPatch: {} });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1626,17 +1610,16 @@ describe("POST /api/assistant/turn", () => {
         });
       }),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "unsupported",
-        draftPatch: { source: "topics", topics: ["css"] },
-        unsupportedReason: "interval",
-      },
+    const turn = assistantRequest("Create a CSS feed that updates every 12 hours");
+
+    useDecision(turn, {
+      intent: "unsupported",
+      draftPatch: { source: "topics", topics: ["css"] },
+      unsupportedReason: "interval",
     });
-    const response = await postAssistant(
-      assistantRequest("Create a CSS feed that updates every 12 hours"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1654,13 +1637,15 @@ describe("POST /api/assistant/turn", () => {
         HttpResponse.json({ message: "Service unavailable" }, { status: 503 }),
       ),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "topics", topics: ["css"] },
-      },
+    const turn = assistantRequest("Create a CSS feed");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "topics", topics: ["css"] },
     });
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
@@ -1668,8 +1653,9 @@ describe("POST /api/assistant/turn", () => {
     });
   });
 
-  it("applies both rate limits before invoking Workers AI", async () => {
-    const { bindings, run, clientLimit, networkLimit } = makeAssistantEnv({
+  it("applies both rate limits before calling TypeSafe", async () => {
+    const requests = useTypeSafe();
+    const { bindings, clientLimit, networkLimit } = makeAssistantEnv({
       clientAllowed: false,
     });
     const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
@@ -1678,68 +1664,64 @@ describe("POST /api/assistant/turn", () => {
     expect(response.headers.get("Retry-After")).toBe("60");
     expect(clientLimit).toHaveBeenCalledOnce();
     expect(networkLimit).toHaveBeenCalledOnce();
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
-  it("rejects unknown request fields before invoking Workers AI", async () => {
-    const { bindings, run } = makeAssistantEnv();
+  it("rejects unknown request fields before calling TypeSafe", async () => {
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant(
       { ...assistantRequest("Create a CSS feed"), unknown: true },
       bindings,
     );
 
     expect(response.status).toBe(400);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
-  it("rejects an oversized streamed body before invoking Workers AI", async () => {
-    const { bindings, run } = makeAssistantEnv();
+  it("rejects an oversized streamed body before calling TypeSafe", async () => {
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant({ message: "x".repeat(9_000) }, bindings);
 
     expect(response.status).toBe(413);
-    expect(run).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(0);
   });
 
-  it("returns 503 without invoking inference when the AI binding is missing", async () => {
-    const { bindings, run } = makeAssistantEnv();
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), {
-      ...bindings,
-      AI: undefined,
+  it.each([
+    ["missing", null],
+    ["empty", ""],
+    ["blank", "   "],
+  ])(
+    "returns 503 after the rate limits and before inference when the TypeSafe key is %s",
+    async (_label, typesafeKey) => {
+      const requests = useTypeSafe();
+      const { bindings, clientLimit, networkLimit } = makeAssistantEnv({ typesafeKey });
+      const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: "Assistant temporarily unavailable",
+      });
+      expect(response.headers.get("X-Assistant-Interpreter")).toBe(JEV_MODEL);
+      expect(clientLimit).toHaveBeenCalledOnce();
+      expect(networkLimit).toHaveBeenCalledOnce();
+      expect(requests).toHaveLength(0);
+    },
+  );
+
+  it("answers a suggested reply without the TypeSafe key", async () => {
+    const requests = useTypeSafe();
+    const { bindings } = makeAssistantEnv({ typesafeKey: null });
+    const response = await postAssistant(assistantRequest("Create a topic feed"), bindings);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      state: "edit-topics",
+      draft: { source: "topics" },
     });
-
-    expect(response.status).toBe(503);
-    expect(run).not.toHaveBeenCalled();
-  });
-
-  it("returns 408 when inference is aborted", async () => {
-    const abortError = new Error("The request was aborted");
-    abortError.name = "AbortError";
-    const { bindings, run } = makeAssistantEnv({ aiError: abortError });
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
-
-    expect(response.status).toBe(408);
-    expect(run).toHaveBeenCalledOnce();
-  });
-
-  it("retains Workers AI error details in diagnostics while keeping the public error generic", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const aiError = Object.assign(new Error("Account limited"), { code: 3036, status: 429 });
-    const { bindings, run } = makeAssistantEnv({ aiError });
-    const response = await postAssistant(assistantRequest("Create a CSS feed"), bindings);
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({ error: "Assistant response was invalid" });
-    expect(run).toHaveBeenCalledOnce();
-    expect(consoleError).toHaveBeenCalledWith({
-      event: "assistant_turn_failure",
-      stage: "workers-ai",
-      model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      errorName: "Error",
-      errorMessage: "Account limited",
-      errorCode: 3036,
-      errorStatus: 429,
-    });
-    consoleError.mockRestore();
+    expect(response.headers.get("X-Assistant-Interpreter")).toBe("canned-suggestion");
+    expect(requests).toHaveLength(0);
   });
 
   const octocatUserHandler = ({ found = true }: { found?: boolean } = {}) =>
@@ -1764,16 +1746,12 @@ describe("POST /api/assistant/turn", () => {
 
   it("asks for a GitHub username when a starred request has none", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-      },
-    });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from my starred repositories"),
-      bindings,
-    );
+    const turn = assistantRequest("Create a feed from my starred repositories");
+
+    useDecision(turn, { intent: "create-or-update-feed", draftPatch: { source: "starred" } });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -1790,18 +1768,14 @@ describe("POST /api/assistant/turn", () => {
 
   it("[starred_002] retains a named repository subset until the username is available", async () => {
     const requestedRepos = ["warpdotdev/warp", "mattpocock/skills"];
-    const firstTurn = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-      },
-    });
-    const firstResponse = await postAssistant(
-      assistantRequest(
-        "I want to create a feed from the following starred repos: warpdotdev/warp and mattpocock/skills",
-      ),
-      firstTurn.bindings,
+    const { bindings } = makeAssistantEnv();
+    const firstTurn = assistantRequest(
+      "I want to create a feed from the following starred repos: warpdotdev/warp and mattpocock/skills",
     );
+
+    useDecision(firstTurn, { intent: "create-or-update-feed", draftPatch: { source: "starred" } });
+
+    const firstResponse = await postAssistant(firstTurn, bindings);
     const firstPayload = await firstResponse.json();
 
     expect(firstResponse.status).toBe(200);
@@ -1831,21 +1805,18 @@ describe("POST /api/assistant/turn", () => {
         ),
       ),
     );
-    const secondTurn = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { username: "schalkneethling" },
-        repoSelectionAction: { kind: "all" },
-      },
+    const secondTurn: AssistantTurnRequest = {
+      ...assistantRequest("schalkneethling"),
+      state: "enter-username",
+      draft: firstPayload.draft,
+    };
+    // An unsolicited all action is ignored while the username is still being supplied.
+    const secondRequests = useDecision(secondTurn, {
+      intent: "create-or-update-feed",
+      draftPatch: { username: "schalkneethling" },
+      repoSelectionAction: { kind: "all" },
     });
-    const secondResponse = await postAssistant(
-      {
-        ...assistantRequest("schalkneethling"),
-        state: "enter-username",
-        draft: firstPayload.draft,
-      },
-      secondTurn.bindings,
-    );
+    const secondResponse = await postAssistant(secondTurn, bindings);
     const secondPayload = await secondResponse.json();
 
     expect(secondResponse.status).toBe(200);
@@ -1860,49 +1831,12 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(secondPayload.message).toContain("I selected 2 repositories");
-    const [, secondTurnInput] = secondTurn.run.mock.calls[0] as [
-      string,
-      { messages: Array<{ role: string; content: string }> },
-    ];
-    expect(JSON.parse(secondTurnInput.messages[1].content)).toMatchObject({
-      currentTurn: {
-        draft: {
-          source: "starred",
-          username: null,
-          repoSelection: { kind: "subset", repos: requestedRepos },
-        },
-        requiredDecision: "github-username",
-      },
-    });
-  });
-
-  it("keeps explicitly named repositories authoritative over a partial model subset", async () => {
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "starred",
-          repoSelection: { kind: "subset", repos: ["invented/repository"] },
-        },
-      },
-    });
-    const response = await postAssistant(
-      assistantRequest(
-        "Create a feed from warpdotdev/warp and mattpocock/skills in my starred repositories",
-      ),
-      bindings,
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload).toMatchObject({
-      state: "enter-username",
-      draft: {
-        source: "starred",
-        repoSelection: {
-          kind: "subset",
-          repos: ["warpdotdev/warp", "mattpocock/skills"],
-        },
+    expect(jevState(secondRequests[0])).toMatchObject({
+      app_just_asked: { decision: "github-username" },
+      feed_so_far: {
+        feed_type: "starred repositories",
+        github_username: null,
+        repositories: requestedRepos,
       },
     });
   });
@@ -1927,18 +1861,17 @@ describe("POST /api/assistant/turn", () => {
       ),
     );
 
-    const initialTurn = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred" },
-      },
-    });
-    const initialResponse = await postAssistant(
-      assistantRequest(
-        "Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories",
-      ),
-      initialTurn.bindings,
+    const { bindings } = makeAssistantEnv();
+    const initialTurn = assistantRequest(
+      "Create a feed from wrapdotdev/warp and mattpocock/skills in my starred repositories",
     );
+
+    useDecision(initialTurn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred" },
+    });
+
+    const initialResponse = await postAssistant(initialTurn, bindings);
     const initialPayload = await initialResponse.json();
 
     expect(initialResponse.status).toBe(200);
@@ -1951,20 +1884,18 @@ describe("POST /api/assistant/turn", () => {
       },
     });
 
-    const usernameTurn = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { username: "schalkneethling" },
-      },
+    const usernameTurn: AssistantTurnRequest = {
+      ...assistantRequest("schalkneethling"),
+      state: "enter-username",
+      draft: initialPayload.draft,
+    };
+
+    useDecision(usernameTurn, {
+      intent: "create-or-update-feed",
+      draftPatch: { username: "schalkneethling" },
     });
-    const usernameResponse = await postAssistant(
-      {
-        ...assistantRequest("schalkneethling"),
-        state: "enter-username",
-        draft: initialPayload.draft,
-      },
-      usernameTurn.bindings,
-    );
+
+    const usernameResponse = await postAssistant(usernameTurn, bindings);
     const usernamePayload = await usernameResponse.json();
 
     expect(usernameResponse.status).toBe(200);
@@ -1978,23 +1909,19 @@ describe("POST /api/assistant/turn", () => {
       issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
     });
 
-    const correctionTurn = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
-        },
+    const correctionTurn: AssistantTurnRequest = {
+      ...assistantRequest("I mean warpdotdev/warp"),
+      state: "choose-repos",
+      draft: usernamePayload.draft,
+      issues: usernamePayload.issues,
+    };
+    const correctionRequests = useDecision(correctionTurn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
       },
     });
-    const correctionResponse = await postAssistant(
-      {
-        ...assistantRequest("I mean warpdotdev/warp"),
-        state: "choose-repos",
-        draft: usernamePayload.draft,
-        issues: usernamePayload.issues,
-      },
-      correctionTurn.bindings,
-    );
+    const correctionResponse = await postAssistant(correctionTurn, bindings);
     const correctionPayload = await correctionResponse.json();
 
     expect(correctionResponse.status).toBe(200);
@@ -2014,18 +1941,11 @@ describe("POST /api/assistant/turn", () => {
       ttlSelected: false,
     });
     expect(correctionPayload.message).toContain("I selected 2 repositories");
-
-    const [, correctionTurnInput] = correctionTurn.run.mock.calls[0] as [
-      string,
-      { messages: Array<{ role: string; content: string }> },
-    ];
-    expect(JSON.parse(correctionTurnInput.messages[1].content)).toMatchObject({
-      currentTurn: {
-        draft: {
-          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
-        },
-        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
-        requiredDecision: "recovery",
+    expect(jevState(correctionRequests[0])).toMatchObject({
+      app_just_asked: { decision: "recovery" },
+      feed_so_far: {
+        repositories: ["mattpocock/skills"],
+        open_issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
       },
     });
   });
@@ -2048,29 +1968,28 @@ describe("POST /api/assistant/turn", () => {
         ),
       ),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
-        },
-        repoSelectionAction: { kind: "replace" },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Only use warpdotdev/warp"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "schalkneethling",
+        repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
       },
+      issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
+    };
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["warpdotdev/warp"] },
+      },
+      repoSelectionAction: { kind: "replace" },
     });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Only use warpdotdev/warp"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "schalkneethling",
-          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
-        },
-        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
-      },
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2083,33 +2002,49 @@ describe("POST /api/assistant/turn", () => {
     });
   });
 
-  it("rejects an invented repository in a model-proposed replacement subset", async () => {
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          repoSelection: { kind: "subset", repos: ["invented/repository"] },
+  it("keeps the draft's casing when a replacement repeats a selected repository", async () => {
+    server.use(
+      octocatUserHandler(),
+      octocatStarsHandler([
+        {
+          ...repoFixture,
+          full_name: "octocat/Hello-World",
+          name: "Hello-World",
+          owner: { login: "octocat" },
         },
-        repoSelectionAction: { kind: "replace" },
-      },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Only use warpdotdev/warp"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "schalkneethling",
-          repoSelection: { kind: "subset", repos: ["mattpocock/skills"] },
-        },
-        issues: ["“wrapdotdev/warp” is not among @schalkneethling's starred repositories."],
-      },
-      bindings,
+      ]),
     );
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Only octocat/hello-world"),
+      state: "edit-settings",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["octocat/Hello-World", "example/repo"] },
+      },
+    };
 
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({ error: "Assistant response was invalid" });
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["octocat/hello-world"] },
+      },
+      repoSelectionAction: { kind: "replace" },
+    });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      state: "edit-settings",
+      draft: {
+        repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
+      },
+      issues: [],
+    });
   });
 
   it("preserves trusted repository casing when recovery repeats a selected repository", async () => {
@@ -2124,28 +2059,27 @@ describe("POST /api/assistant/turn", () => {
         },
       ]),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          repoSelection: { kind: "subset", repos: ["octocat/hello-world"] },
-        },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("I mean octocat/hello-world"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
+      },
+      issues: ["“other/repo” is not among @octocat's starred repositories."],
+    };
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        repoSelection: { kind: "subset", repos: ["octocat/hello-world"] },
       },
     });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("I mean octocat/hello-world"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "subset", repos: ["octocat/Hello-World"] },
-        },
-        issues: ["“other/repo” is not among @octocat's starred repositories."],
-      },
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2165,27 +2099,22 @@ describe("POST /api/assistant/turn", () => {
     );
 
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "unsupported",
-        draftPatch: {},
-        unsupportedReason: "request",
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Email extra/repo to me"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: retainedRepositories },
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Email extra/repo to me"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "subset", repos: retainedRepositories },
-        },
-        issues: ["“invalid/repo” is not among @octocat's starred repositories."],
-      },
-      bindings,
-    );
+      issues: ["“invalid/repo” is not among @octocat's starred repositories."],
+    };
+
+    useDecision(turn, { intent: "unsupported", draftPatch: {}, unsupportedReason: "request" });
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2198,16 +2127,15 @@ describe("POST /api/assistant/turn", () => {
 
   it("validates a username and asks whether to use all starred repositories", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred", username: "octocat" },
-      },
+    const turn = assistantRequest("Create a feed from octocat's starred repositories");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred", username: "octocat" },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2229,25 +2157,22 @@ describe("POST /api/assistant/turn", () => {
       name: `repo-${index + 1}`,
     }));
     server.use(octocatStarsHandler(repos));
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {},
-        repoSelectionAction: { kind: "first", count: 10 },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("Please select the first 10"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
       },
+    };
+    const requests = useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {},
+      repoSelectionAction: { kind: "first", count: 10 },
     });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("Please select the first 10"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-        },
-      },
-      bindings,
-    );
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2268,21 +2193,20 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.message).toContain("I selected 10 repositories");
     expect(payload.message).toContain("choose how often the feed should update");
-    expect(run).toHaveBeenCalledOnce();
+    expect(requests).toHaveLength(1);
   });
 
   it("reports an unknown GitHub username", async () => {
     server.use(octocatUserHandler({ found: false }));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred", username: "octocat" },
-      },
+    const turn = assistantRequest("Create a feed from octocat's starred repositories");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred", username: "octocat" },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2296,16 +2220,15 @@ describe("POST /api/assistant/turn", () => {
 
   it("reports a GitHub user with no starred repositories", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred", username: "octocat" },
-      },
+    const turn = assistantRequest("Create a feed from octocat's starred repositories");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred", username: "octocat" },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2313,23 +2236,24 @@ describe("POST /api/assistant/turn", () => {
     expect(payload.issues).toEqual(["@octocat has no public starred repositories."]);
   });
 
-  it("generates an all-starred feed URL in one turn", async () => {
+  it("generates an all-starred feed URL from the repository decision in one turn", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "all" },
-          ttl: 86400,
-        },
-      },
+    // Every starred repository is an action over the validated username, so
+    // the turn that applies it starts at the repository decision.
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("All of them, updating every 24 hours"),
+      state: "choose-repos",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "starred", username: "octocat" },
+    };
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { ttl: 86400 },
+      repoSelectionAction: { kind: "all" },
     });
-    const response = await postAssistant(
-      assistantRequest("All of octocat's starred repositories, updating every 24 hours"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2356,21 +2280,20 @@ describe("POST /api/assistant/turn", () => {
 
   it("reports repositories that are not in the user's starred list", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "subset", repos: ["example/repo", "not-starred/repo"] },
-          ttl: 86400,
-        },
+    const turn = assistantRequest("Follow example/repo and not-starred/repo from octocat");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["example/repo", "not-starred/repo"] },
+        ttl: 86400,
       },
     });
-    const response = await postAssistant(
-      assistantRequest("Follow example/repo and not-starred/repo from octocat"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2390,21 +2313,20 @@ describe("POST /api/assistant/turn", () => {
 
   it("generates a subset starred feed URL after validating the selection", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "subset", repos: ["example/repo"] },
-          ttl: 86400,
-        },
+    const turn = assistantRequest("Follow example/repo from octocat, updating every 24 hours");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "subset", repos: ["example/repo"] },
+        ttl: 86400,
       },
     });
-    const response = await postAssistant(
-      assistantRequest("Follow example/repo from octocat, updating every 24 hours"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2421,25 +2343,19 @@ describe("POST /api/assistant/turn", () => {
 
   it("lists update frequencies for a starred draft in the repository state", async () => {
     const githubCalls = recordGitHubCalls();
-    const { bindings, run } = makeAssistantEnv({
-      aiResponse: {
-        intent: "list-settings",
-        draftPatch: {},
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("What update frequencies are available?"),
+      state: "choose-repos",
+      draft: {
+        ...DEFAULT_FEED_DRAFT,
+        source: "starred",
+        username: "octocat",
+        repoSelection: { kind: "all" },
       },
-    });
-    const response = await postAssistant(
-      {
-        ...assistantRequest("What update frequencies are available?"),
-        state: "choose-repos",
-        draft: {
-          ...DEFAULT_FEED_DRAFT,
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "all" },
-        },
-      },
-      bindings,
-    );
+    };
+    const requests = useDecision(turn, { intent: "list-settings", draftPatch: {} });
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2451,31 +2367,27 @@ describe("POST /api/assistant/turn", () => {
     });
     expect(payload.message).toContain("1 hour, 6 hours, 24 hours, or 1 week");
     expect(githubCalls).toHaveLength(0);
-    const [, input] = run.mock.calls[0] as [
-      string,
-      { messages: Array<{ role: string; content: string }> },
-    ];
-    expect(JSON.parse(input.messages[1].content)).toMatchObject({
-      currentTurn: { requiredDecision: "feed-settings" },
+    expect(jevState(requests[0])).toMatchObject({
+      app_just_asked: { decision: "feed-settings" },
     });
   });
 
   it("advances an all-starred feed to settings until a frequency is selected", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: {
-          source: "starred",
-          username: "octocat",
-          repoSelection: { kind: "all" },
-        },
-      },
+    const turn: AssistantTurnRequest = {
+      ...assistantRequest("All of octocat's starred repositories"),
+      state: "choose-repos",
+      draft: { ...DEFAULT_FEED_DRAFT, source: "starred", username: "octocat" },
+    };
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: {},
+      repoSelectionAction: { kind: "all" },
     });
-    const response = await postAssistant(
-      assistantRequest("All of octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2490,17 +2402,16 @@ describe("POST /api/assistant/turn", () => {
 
   it("guides update-frequency selection when a starred interval is unsupported", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "unsupported",
-        draftPatch: { source: "starred", username: "octocat" },
-        unsupportedReason: "interval",
-      },
+    const turn = assistantRequest("octocat's starred repos updating every 12 hours");
+
+    useDecision(turn, {
+      intent: "unsupported",
+      draftPatch: { source: "starred", username: "octocat" },
+      unsupportedReason: "interval",
     });
-    const response = await postAssistant(
-      assistantRequest("octocat's starred repos updating every 12 hours"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
@@ -2518,16 +2429,15 @@ describe("POST /api/assistant/turn", () => {
         HttpResponse.json({ message: "boom" }, { status: 503 }),
       ),
     );
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred", username: "octocat" },
-      },
+    const turn = assistantRequest("Create a feed from octocat's starred repositories");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred", username: "octocat" },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
@@ -2537,16 +2447,15 @@ describe("POST /api/assistant/turn", () => {
 
   it("derives repository selection when a starred request has no selection", async () => {
     server.use(octocatUserHandler(), octocatStarsHandler([repoFixture]));
-    const { bindings } = makeAssistantEnv({
-      aiResponse: {
-        intent: "create-or-update-feed",
-        draftPatch: { source: "starred", username: "octocat" },
-      },
+    const turn = assistantRequest("Create a feed from octocat's starred repositories");
+
+    useDecision(turn, {
+      intent: "create-or-update-feed",
+      draftPatch: { source: "starred", username: "octocat" },
     });
-    const response = await postAssistant(
-      assistantRequest("Create a feed from octocat's starred repositories"),
-      bindings,
-    );
+
+    const { bindings } = makeAssistantEnv();
+    const response = await postAssistant(turn, bindings);
 
     const payload = await response.json();
 

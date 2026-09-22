@@ -298,43 +298,6 @@ export const stateForVisibleUi = (payload: AssistantTurnRequest) => {
   return "choose-source" as const;
 };
 
-const READ_ONLY_INTENTS = new Set<ModelDecision["intent"]>([
-  "explain-capabilities",
-  "list-topics",
-  "list-repositories",
-  "list-settings",
-  "show-ui",
-  "hide-ui",
-]);
-
-export const normalizeModelPatch = (
-  patch: ModelDecision["draftPatch"],
-): ModelDecision["draftPatch"] => {
-  const normalized = { ...patch };
-
-  if (normalized.topics?.length === 0) {
-    delete normalized.topics;
-  }
-
-  if (normalized.username === null) {
-    delete normalized.username;
-  }
-
-  if (normalized.repoSelection === null) {
-    delete normalized.repoSelection;
-  }
-
-  if (normalized.format === "atom") {
-    delete normalized.format;
-  }
-
-  if (normalized.topicOperator === "or") {
-    delete normalized.topicOperator;
-  }
-
-  return normalized;
-};
-
 export const mergeRepositoryNames = (
   current: readonly string[],
   additions: readonly string[],
@@ -355,11 +318,6 @@ export const mergeRepositoryNames = (
 
   return [...merged.values()];
 };
-
-export const isReadOnlyDecisionValid = (decision: ModelDecision): boolean =>
-  !READ_ONLY_INTENTS.has(decision.intent) ||
-  (Object.keys(normalizeModelPatch(decision.draftPatch)).length === 0 &&
-    decision.repoSelectionAction === undefined);
 
 export const canFinalizeDraft = (payload: AssistantTurnRequest): boolean => {
   if (!payload.ttlSelected || payload.issues.length > 0) {

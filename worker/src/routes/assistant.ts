@@ -12,11 +12,7 @@ import {
   TOPIC_SLUG,
   USERNAME_PATTERN,
 } from "../assistant/entities";
-import {
-  evaluateAdaptiveFeedBuilder,
-  evaluateJevInterpreter,
-  readExperimentKey,
-} from "../assistant/experiment";
+import { evaluateAdaptiveFeedBuilder, readExperimentKey } from "../assistant/experiment";
 import {
   bareRepositoryMatches,
   resolveBareRepositories,
@@ -24,12 +20,7 @@ import {
 import { JEV_MODEL, JevClientError } from "../assistant/interpreter/jev/client";
 import { INTENT_CLARIFY_THRESHOLD } from "../assistant/interpreter/jev/compose";
 import { interpretWithJev, judgeBareRepositories } from "../assistant/interpreter/jev/index";
-import { interpretWithLlama, MODEL } from "../assistant/interpreter/llama";
-import {
-  AssistantModelError,
-  type Interpretation,
-  type Interpreter,
-} from "../assistant/interpreter/types";
+import { AssistantModelError, type Interpretation } from "../assistant/interpreter/types";
 import {
   CAPABILITIES_MESSAGE,
   SETTINGS_ISSUE,
@@ -40,9 +31,7 @@ import {
   cannedDecisionFor,
   createStarredFeedUrl,
   createTopicFeedUrl,
-  isReadOnlyDecisionValid,
   mergeRepositoryNames,
-  normalizeModelPatch,
   promptFor,
   requiredDecisionFor,
   responseFor,
@@ -70,11 +59,8 @@ const MAX_BODY_BYTES = 8_192;
 const GITHUB_LOOKUP_TIMEOUT = Duration.seconds(10);
 
 type AssistantFailureStage =
-  | "workers-ai"
   | "typesafe"
   | "model-output"
-  | "read-only-mutation"
-  | "repository-action-context"
   | "repository-list-context"
   // The second Jev request, judging bare repository names, failed; the turn
   // still answers by asking the person to choose.
@@ -90,37 +76,8 @@ const errorProperty = (error: unknown, property: string): string | number | unde
   return typeof value === "string" || typeof value === "number" ? value : undefined;
 };
 
-type ChosenInterpreter = {
-  interpret: Interpreter;
-  model: string;
-  failureStage: Extract<AssistantFailureStage, "workers-ai" | "typesafe">;
-};
-
-const LLAMA_INTERPRETER: ChosenInterpreter = {
-  interpret: interpretWithLlama,
-  model: MODEL,
-  failureStage: "workers-ai",
-};
-
 // Recorded for diagnostics when a suggested reply is answered without inference.
 const CANNED_MODEL = "canned-suggestion";
-
-const JEV_INTERPRETER: ChosenInterpreter = {
-  interpret: interpretWithJev,
-  model: JEV_MODEL,
-  failureStage: "typesafe",
-};
-
-// Jev needs both its runtime flag and a non-empty API key (local development
-// passes an empty variable when the key is not configured). Anything else
-// keeps the Llama interpreter.
-const chooseInterpreter = async (ctx: Context<AppEnv>): Promise<ChosenInterpreter> => {
-  const hasTypeSafeKey = (ctx.env.TYPESAFE_API_KEY ?? "").trim() !== "";
-
-  return hasTypeSafeKey && (await evaluateJevInterpreter(ctx))
-    ? JEV_INTERPRETER
-    : LLAMA_INTERPRETER;
-};
 
 const logAssistantFailure = (
   ctx: Context<AppEnv>,
@@ -132,8 +89,8 @@ const logAssistantFailure = (
   console.error({
     event: "assistant_turn_failure",
     stage,
-    // The interpreter chosen for this turn; Llama until a choice is recorded.
-    model: ctx.var.assistantModel ?? MODEL,
+    // What handled this turn: the Jev model id, or the canned-suggestion path.
+    model: ctx.var.assistantModel ?? JEV_MODEL,
     ...(intent === undefined ? {} : { intent }),
     // A Jev client failure reports its kind and status only.
     ...(error instanceof JevClientError
@@ -384,18 +341,16 @@ const validateStarredRepos = (
 type BareRepositoryContext = {
   message: string;
   replacesSelection: boolean;
-  // Jev may be asked to settle an ambiguous match: the same key-and-flag
-  // condition that chose the Jev interpreter. On the Llama path code matching
-  // still applies, and an ambiguous match asks the person instead.
-  canJudge: boolean;
+  // The key the turn's own request already used; Jev may be asked once more
+  // to settle an ambiguous match.
+  apiKey: string;
 };
 
 type BareRepositoryOutcome =
   | { kind: "none" }
   | { kind: "selected"; repos: string[] }
   // Matching found candidates but no repository was settled; the turn asks
-  // the person, offering the repository list first when Jev was not consulted
-  // or failed.
+  // the person, offering the repository list first when the Jev request failed.
   | { kind: "ask"; suggestList: boolean }
   | { kind: "aborted" };
 
@@ -418,15 +373,9 @@ const bareRepositoryOutcome = async (
     return { kind: "selected", repos: resolution.repos };
   }
 
-  const apiKey = (ctx.env.TYPESAFE_API_KEY ?? "").trim();
-
-  if (!bare.canJudge || apiKey === "") {
-    return { kind: "ask", suggestList: true };
-  }
-
   try {
     const repos = await judgeBareRepositories(
-      apiKey,
+      bare.apiKey,
       bare.message,
       resolution.candidates,
       ctx.req.raw.signal,
@@ -673,28 +622,16 @@ const handleStarredTurn = async (
   );
 };
 
-const handleRepoSelectionAction = async (
+// Selects the first `count` repositories in trusted GitHub order. The caller
+// has already established a starred candidate with a valid username.
+const handleFirstRepositories = async (
   ctx: Context<AppEnv>,
-  decision: ModelDecision,
   candidate: FeedDraft,
+  username: string,
+  count: number,
   candidateTtlSelected: boolean,
   hints: readonly string[],
 ): Promise<Response> => {
-  const { repoSelectionAction } = decision;
-  const { username } = candidate;
-
-  if (
-    decision.intent !== "create-or-update-feed" ||
-    repoSelectionAction === undefined ||
-    repoSelectionAction.kind !== "first" ||
-    candidate.source !== "starred" ||
-    username === null ||
-    !USERNAME_PATTERN.test(username)
-  ) {
-    logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
-    return ctx.json({ error: "Assistant response was invalid" }, 502);
-  }
-
   let repoNames: string[];
 
   try {
@@ -705,7 +642,7 @@ const handleRepoSelectionAction = async (
       ),
     );
 
-    repoNames = repos.slice(0, repoSelectionAction.count).map((repo) => repo.full_name);
+    repoNames = repos.slice(0, count).map((repo) => repo.full_name);
   } catch {
     return ctx.json({ error: "Starred repository lookup temporarily unavailable" }, 503);
   }
@@ -808,9 +745,11 @@ assistantRoutes.post("/turn", async (ctx) => {
 
   const requiredDecision = requiredDecisionFor(payload);
   // A suggested reply offered at this required decision has a fixed meaning,
-  // so it needs no interpreter, AI binding, or TypeSafe key. The rate limits
+  // so it needs neither the interpreter nor the TypeSafe key. The rate limits
   // above still apply because several of these decisions call GitHub.
   const cannedDecision = cannedDecisionFor(payload.message, requiredDecision);
+  // Local development passes an empty variable when the key is not configured.
+  const apiKey = (ctx.env.TYPESAFE_API_KEY ?? "").trim();
   let interpretation: Interpretation;
 
   if (cannedDecision !== null) {
@@ -823,16 +762,14 @@ assistantRoutes.post("/turn", async (ctx) => {
       replacesSelection: false,
     };
   } else {
-    const interpreter = await chooseInterpreter(ctx);
+    ctx.set("assistantModel", JEV_MODEL);
 
-    ctx.set("assistantModel", interpreter.model);
-
-    if (interpreter === LLAMA_INTERPRETER && !ctx.env.AI) {
+    if (apiKey === "") {
       return ctx.json({ error: "Assistant temporarily unavailable" }, 503);
     }
 
     try {
-      interpretation = await interpreter.interpret(
+      interpretation = await interpretWithJev(
         { ...payload, requiredDecision },
         ctx.env,
         ctx.req.raw.signal,
@@ -844,7 +781,7 @@ assistantRoutes.post("/turn", async (ctx) => {
 
       logAssistantFailure(
         ctx,
-        error instanceof AssistantModelError ? "model-output" : interpreter.failureStage,
+        error instanceof AssistantModelError ? "model-output" : "typesafe",
         error,
       );
       return ctx.json({ error: "Assistant response was invalid" }, 502);
@@ -870,11 +807,6 @@ assistantRoutes.post("/turn", async (ctx) => {
     );
   }
 
-  if (!isReadOnlyDecisionValid(decision)) {
-    logAssistantFailure(ctx, "read-only-mutation", undefined, decision.intent);
-    return ctx.json({ error: "Assistant response was invalid" }, 502);
-  }
-
   if (decision.intent === "show-ui") {
     return showUiResponse(ctx, payload, hints);
   }
@@ -886,6 +818,8 @@ assistantRoutes.post("/turn", async (ctx) => {
   if (decision.intent === "list-repositories") {
     const { source, username } = payload.draft;
 
+    // Jev judges the message, not the draft: it can read "show me the repos"
+    // as list-repositories while no starred username exists to list from.
     if (source !== "starred" || username === null) {
       logAssistantFailure(ctx, "repository-list-context", undefined, decision.intent);
       return ctx.json({ error: "Assistant response was invalid" }, 502);
@@ -927,49 +861,38 @@ assistantRoutes.post("/turn", async (ctx) => {
     return informationalResponse(ctx, payload, CAPABILITIES_MESSAGE, hints);
   }
 
-  const normalizedModelPatch = normalizeModelPatch(decision.draftPatch);
+  const modelPatch = decision.draftPatch;
   const explicitRepositoryNames = extractExplicitRepositoryNames(payload.message);
   const currentRepositorySelection = payload.draft.repoSelection;
   let replacementRepositoryNames: string[] | null = null;
 
-  if (decision.repoSelectionAction?.kind === "replace") {
-    if (
-      decision.intent !== "create-or-update-feed" ||
-      payload.draft.source !== "starred" ||
-      currentRepositorySelection?.kind !== "subset" ||
-      normalizedModelPatch.repoSelection?.kind !== "subset"
-    ) {
-      logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
-      return ctx.json({ error: "Assistant response was invalid" }, 502);
-    }
-
-    const allowedRepositoryNames = mergeRepositoryNames(
-      currentRepositorySelection.repos,
-      explicitRepositoryNames,
+  // A replace action is composed only for a create-or-update-feed decision
+  // whose subset is the message's own explicit owner/repo names, over a draft
+  // that already holds a subset (and so, by the consistency check, is starred).
+  if (
+    decision.repoSelectionAction?.kind === "replace" &&
+    modelPatch.repoSelection?.kind === "subset"
+  ) {
+    // Starred validation compares names exactly, so a repository the draft
+    // already holds keeps the casing GitHub reported rather than the typed one.
+    const currentByKey = new Map(
+      (currentRepositorySelection?.kind === "subset" ? currentRepositorySelection.repos : []).map(
+        (repository) => [repository.toLowerCase(), repository],
+      ),
     );
-    const allowedByKey = new Map(
-      allowedRepositoryNames.map((repository) => [repository.toLowerCase(), repository]),
+
+    replacementRepositoryNames = mergeRepositoryNames(
+      [],
+      modelPatch.repoSelection.repos.map(
+        (repository) => currentByKey.get(repository.toLowerCase()) ?? repository,
+      ),
     );
-    const trustedReplacement: string[] = [];
-
-    for (const repository of normalizedModelPatch.repoSelection.repos) {
-      const trustedRepository = allowedByKey.get(repository.toLowerCase());
-
-      if (trustedRepository === undefined) {
-        logAssistantFailure(ctx, "repository-action-context", undefined, decision.intent);
-        return ctx.json({ error: "Assistant response was invalid" }, 502);
-      }
-
-      trustedReplacement.push(trustedRepository);
-    }
-
-    replacementRepositoryNames = mergeRepositoryNames([], trustedReplacement);
   }
 
   const canApplyExplicitRepositoryNames =
     decision.intent === "create-or-update-feed" &&
     explicitRepositoryNames.length > 0 &&
-    (normalizedModelPatch.source === "starred" || payload.draft.source === "starred");
+    (modelPatch.source === "starred" || payload.draft.source === "starred");
   const recoveredRepositorySelection =
     canApplyExplicitRepositoryNames &&
     requiredDecision === "recovery" &&
@@ -1006,30 +929,34 @@ assistantRoutes.post("/turn", async (ctx) => {
     repositoryNamesForPatch.length <= MAX_EXPLICIT_REPOSITORIES;
   const candidatePatch = shouldRetainExplicitRepositories
     ? {
-        ...normalizedModelPatch,
+        ...modelPatch,
         repoSelection: { kind: "subset" as const, repos: repositoryNamesForPatch },
       }
-    : normalizedModelPatch;
+    : modelPatch;
   const candidate = applyDraftPatch(payload.draft, candidatePatch);
   const candidateTtlSelected = payload.ttlSelected || "ttl" in decision.draftPatch;
+  // A replace action always retains its explicit names above, so only the
+  // all and first actions can remain to apply here.
   const repositoryAction = shouldRetainExplicitRepositories
     ? undefined
     : decision.repoSelectionAction;
-  const hasTrustedRepositoryContext =
-    candidate.source === "starred" &&
-    candidate.username !== null &&
-    USERNAME_PATTERN.test(candidate.username);
-  const canApplyRepoSelectionAction =
+  const applicableRepositoryAction =
     decision.intent === "create-or-update-feed" &&
     repositoryAction !== undefined &&
-    hasTrustedRepositoryContext &&
+    candidate.source === "starred" &&
+    candidate.username !== null &&
+    USERNAME_PATTERN.test(candidate.username) &&
     (requiredDecision === "repository-selection" ||
       (repositoryAction.kind === "all" &&
         payload.draft.username !== null &&
-        isRepoSelectionComplete(payload.draft.repoSelection)));
+        isRepoSelectionComplete(payload.draft.repoSelection)))
+      ? { action: repositoryAction, username: candidate.username }
+      : null;
 
-  if (canApplyRepoSelectionAction) {
-    if (repositoryAction.kind === "all") {
+  if (applicableRepositoryAction !== null) {
+    const { action, username } = applicableRepositoryAction;
+
+    if (action.kind === "all") {
       return handleStarredTurn(
         ctx,
         decision,
@@ -1039,7 +966,16 @@ assistantRoutes.post("/turn", async (ctx) => {
       );
     }
 
-    return handleRepoSelectionAction(ctx, decision, candidate, candidateTtlSelected, hints);
+    if (action.kind === "first") {
+      return handleFirstRepositories(
+        ctx,
+        candidate,
+        username,
+        action.count,
+        candidateTtlSelected,
+        hints,
+      );
+    }
   }
 
   if (candidate.source === "starred") {
@@ -1051,12 +987,12 @@ assistantRoutes.post("/turn", async (ctx) => {
       cannedDecision === null &&
       decision.intent === "create-or-update-feed" &&
       explicitRepositoryNames.length === 0 &&
-      normalizedModelPatch.repoSelection?.kind !== "subset" &&
+      modelPatch.repoSelection?.kind !== "subset" &&
       decision.repoSelectionAction === undefined
         ? {
             message: payload.message,
             replacesSelection: interpretation.replacesSelection,
-            canJudge: ctx.var.assistantModel === JEV_INTERPRETER.model,
+            apiKey,
           }
         : null;
 
