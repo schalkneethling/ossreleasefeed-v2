@@ -67,6 +67,9 @@ export type ComposedDecision = {
   intentConfidence: number;
   // Catalogue suggestions for signals that were noticed but not applied.
   hints: string[];
+  // The message restricts the feed to the repositories it names; read by the
+  // route's bare-name path, since a `replace` action needs explicit names.
+  replacesSelection: boolean;
 };
 
 export class JevCompositionError extends Error {
@@ -199,6 +202,7 @@ export const composeDecision = (
       confidence: Math.min(...consumed, injection),
       intentConfidence,
       hints: [],
+      replacesSelection: false,
     };
   }
 
@@ -210,6 +214,7 @@ export const composeDecision = (
       confidence: Math.min(...consumed),
       intentConfidence,
       hints: [],
+      replacesSelection: false,
     };
   }
 
@@ -219,6 +224,7 @@ export const composeDecision = (
       confidence: Math.min(...consumed),
       intentConfidence,
       hints: [],
+      replacesSelection: false,
     };
   }
 
@@ -311,6 +317,13 @@ export const composeDecision = (
   }
 
   let repoSelectionAction: ModelDecision["repoSelectionAction"];
+  // Whether the named repositories are meant to be the only ones. With
+  // explicit names it becomes the `replace` action; with bare names the route
+  // reads it after matching the message against the fetched starred list.
+  const replacesSelection =
+    source === "starred" &&
+    draft.repoSelection?.kind === "subset" &&
+    noulOf(answers, "replaces_selection") >= ACTION_THRESHOLD;
 
   if (source === "starred") {
     if (username !== null && usernameAnswer !== null && username !== draft.username) {
@@ -321,10 +334,7 @@ export const composeDecision = (
     if (explicitRepositories.length > 0) {
       patch.repoSelection = { kind: "subset", repos: explicitRepositories };
 
-      if (
-        draft.repoSelection?.kind === "subset" &&
-        noulOf(answers, "replaces_selection") >= ACTION_THRESHOLD
-      ) {
+      if (replacesSelection) {
         repoSelectionAction = { kind: "replace" };
         consumed.push(noulOf(answers, "replaces_selection"));
       }
@@ -385,6 +395,7 @@ export const composeDecision = (
       confidence,
       intentConfidence,
       hints: [],
+      replacesSelection: false,
     };
   }
 
@@ -402,5 +413,6 @@ export const composeDecision = (
       asksFirst,
       refersToExisting,
     }),
+    replacesSelection,
   };
 };

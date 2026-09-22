@@ -17,9 +17,13 @@ import {
   evaluateJevInterpreter,
   readExperimentKey,
 } from "../assistant/experiment";
+import {
+  bareRepositoryMatches,
+  resolveBareRepositories,
+} from "../assistant/interpreter/jev/bare-repos";
 import { JEV_MODEL, JevClientError } from "../assistant/interpreter/jev/client";
 import { INTENT_CLARIFY_THRESHOLD } from "../assistant/interpreter/jev/compose";
-import { interpretWithJev } from "../assistant/interpreter/jev/index";
+import { interpretWithJev, judgeBareRepositories } from "../assistant/interpreter/jev/index";
 import { interpretWithLlama, MODEL } from "../assistant/interpreter/llama";
 import {
   AssistantModelError,
@@ -30,6 +34,7 @@ import {
   CAPABILITIES_MESSAGE,
   SETTINGS_ISSUE,
   SETTINGS_OPTIONS_MESSAGE,
+  SUGGEST_LIST_REPOSITORIES,
   TOPIC_LIMIT_ISSUE,
   canFinalizeDraft,
   cannedDecisionFor,
@@ -70,7 +75,10 @@ type AssistantFailureStage =
   | "model-output"
   | "read-only-mutation"
   | "repository-action-context"
-  | "repository-list-context";
+  | "repository-list-context"
+  // The second Jev request, judging bare repository names, failed; the turn
+  // still answers by asking the person to choose.
+  | "typesafe-repositories";
 
 const errorProperty = (error: unknown, property: string): string | number | undefined => {
   if (typeof error !== "object" || error === null || !(property in error)) {
@@ -345,23 +353,95 @@ const informationalResponse = (
   );
 };
 
-const validateStarredRepos = async (
+const fetchStarredRepositoryNames = async (
   username: string,
-  repos: readonly string[],
   githubLayer: AppEnv["Variables"]["githubLayer"],
-): Promise<{ valid: string[]; invalid: string[] }> => {
+): Promise<string[]> => {
   const fetched = await runEffect(
     Effect.flatMap(GitHubClient, (client) => client.getStarredRepos(username)).pipe(
       Effect.provide(githubLayer),
       Effect.timeout(GITHUB_LOOKUP_TIMEOUT),
     ),
   );
-  const available = new Set(fetched.map((repo) => repo.full_name));
+
+  return fetched.map((repo) => repo.full_name);
+};
+
+const validateStarredRepos = (
+  repos: readonly string[],
+  starred: readonly string[],
+): { valid: string[]; invalid: string[] } => {
+  const available = new Set(starred);
 
   return {
     valid: repos.filter((repo) => available.has(repo)),
     invalid: repos.filter((repo) => !available.has(repo)),
   };
+};
+
+// What the bare-name path needs from the turn: set only when the interpreter
+// left the repository selection open (no explicit subset, no all/first action).
+type BareRepositoryContext = {
+  message: string;
+  replacesSelection: boolean;
+  // Jev may be asked to settle an ambiguous match: the same key-and-flag
+  // condition that chose the Jev interpreter. On the Llama path code matching
+  // still applies, and an ambiguous match asks the person instead.
+  canJudge: boolean;
+};
+
+type BareRepositoryOutcome =
+  | { kind: "none" }
+  | { kind: "selected"; repos: string[] }
+  // Matching found candidates but no repository was settled; the turn asks
+  // the person, offering the repository list first when Jev was not consulted
+  // or failed.
+  | { kind: "ask"; suggestList: boolean }
+  | { kind: "aborted" };
+
+const bareRepositoryOutcome = async (
+  ctx: Context<AppEnv>,
+  bare: BareRepositoryContext,
+  username: string,
+  starred: readonly string[],
+  intent: ModelDecision["intent"],
+): Promise<BareRepositoryOutcome> => {
+  const resolution = resolveBareRepositories(
+    bareRepositoryMatches(bare.message, starred, { username }),
+  );
+
+  if (resolution === null) {
+    return { kind: "none" };
+  }
+
+  if (resolution.kind === "resolved") {
+    return { kind: "selected", repos: resolution.repos };
+  }
+
+  const apiKey = (ctx.env.TYPESAFE_API_KEY ?? "").trim();
+
+  if (!bare.canJudge || apiKey === "") {
+    return { kind: "ask", suggestList: true };
+  }
+
+  try {
+    const repos = await judgeBareRepositories(
+      apiKey,
+      bare.message,
+      resolution.candidates,
+      ctx.req.raw.signal,
+    );
+
+    return repos.length > 0 ? { kind: "selected", repos } : { kind: "ask", suggestList: false };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { kind: "aborted" };
+    }
+
+    logAssistantFailure(ctx, "typesafe-repositories", error, intent);
+
+    return { kind: "ask", suggestList: true };
+  }
 };
 
 const handleStarredTurn = async (
@@ -370,8 +450,9 @@ const handleStarredTurn = async (
   candidate: FeedDraft,
   candidateTtlSelected: boolean,
   hints: readonly string[],
+  bare: BareRepositoryContext | null = null,
 ): Promise<Response> => {
-  const { username, repoSelection } = candidate;
+  const { username } = candidate;
 
   if (username === null) {
     return ctx.json(
@@ -445,15 +526,72 @@ const handleStarredTurn = async (
     );
   }
 
-  if (repoSelection === null) {
-    return ctx.json(
+  const askForSelection = (draft: FeedDraft, suggestList: boolean): Response =>
+    ctx.json(
       responseFor(
         "choose-repos",
-        candidate,
+        draft,
         `Found @${username}. Do you want all of their starred repositories or a specific selection?`,
-        { ttlSelected: candidateTtlSelected, hints },
+        {
+          ttlSelected: candidateTtlSelected,
+          hints: suggestList ? [SUGGEST_LIST_REPOSITORIES, ...hints] : hints,
+        },
       ),
     );
+  // Bare names apply to an open or subset selection; with "all" only when the
+  // message restricts the feed to the names it gives.
+  const bareApplies =
+    bare !== null &&
+    decision.intent === "create-or-update-feed" &&
+    (candidate.repoSelection?.kind !== "all" || bare.replacesSelection);
+  let starred: string[] | null = null;
+
+  if (bareApplies || candidate.repoSelection?.kind === "subset") {
+    try {
+      starred = await fetchStarredRepositoryNames(username, ctx.var.githubLayer);
+    } catch {
+      return ctx.json({ error: "Starred repository lookup temporarily unavailable" }, 503);
+    }
+  }
+
+  let repoSelection = candidate.repoSelection;
+
+  if (bare !== null && bareApplies && starred !== null) {
+    const outcome = await bareRepositoryOutcome(ctx, bare, username, starred, decision.intent);
+
+    if (outcome.kind === "aborted") {
+      return ctx.body(null, 408);
+    }
+
+    if (outcome.kind === "ask") {
+      return askForSelection(candidate, outcome.suggestList);
+    }
+
+    if (outcome.kind === "selected") {
+      // The same rules as explicit names: a restriction replaces the subset,
+      // anything else adds to it.
+      const existing =
+        repoSelection?.kind === "subset" && !bare.replacesSelection ? repoSelection.repos : [];
+      const repos = mergeRepositoryNames(existing, outcome.repos);
+
+      if (repos.length > MAX_EXPLICIT_REPOSITORIES) {
+        const issue = `Choose no more than ${MAX_EXPLICIT_REPOSITORIES} repositories.`;
+
+        return ctx.json(
+          responseFor("choose-repos", candidate, issue, {
+            ttlSelected: candidateTtlSelected,
+            issues: [issue],
+            hints,
+          }),
+        );
+      }
+
+      repoSelection = { kind: "subset", repos };
+    }
+  }
+
+  if (repoSelection === null) {
+    return askForSelection(candidate, false);
   }
 
   if (repoSelection.kind === "all") {
@@ -478,14 +616,9 @@ const handleStarredTurn = async (
     );
   }
 
-  let selection: { valid: string[]; invalid: string[] };
-
-  try {
-    selection = await validateStarredRepos(username, repoSelection.repos, ctx.var.githubLayer);
-  } catch {
-    return ctx.json({ error: "Starred repository lookup temporarily unavailable" }, 503);
-  }
-
+  // A subset here came from the draft or from the bare names, and the starred
+  // list was fetched for either; an empty fallback fails closed to "invalid".
+  const selection = validateStarredRepos(repoSelection.repos, starred ?? []);
   const corrected: FeedDraft = {
     ...candidate,
     repoSelection: selection.valid.length > 0 ? { kind: "subset", repos: selection.valid } : null,
@@ -687,6 +820,7 @@ assistantRoutes.post("/turn", async (ctx) => {
       hints: [],
       confidence: null,
       intentConfidence: null,
+      replacesSelection: false,
     };
   } else {
     const interpreter = await chooseInterpreter(ctx);
@@ -909,7 +1043,24 @@ assistantRoutes.post("/turn", async (ctx) => {
   }
 
   if (candidate.source === "starred") {
-    return handleStarredTurn(ctx, decision, candidate, candidateTtlSelected, hints);
+    // Bare repository names ("just react and vite") are matched against the
+    // starred list only when the interpreter left the selection open: no
+    // explicit owner/repo subset and no all/first action. A chip's meaning is
+    // fixed, so a canned turn never carries one.
+    const bare: BareRepositoryContext | null =
+      cannedDecision === null &&
+      decision.intent === "create-or-update-feed" &&
+      explicitRepositoryNames.length === 0 &&
+      normalizedModelPatch.repoSelection?.kind !== "subset" &&
+      decision.repoSelectionAction === undefined
+        ? {
+            message: payload.message,
+            replacesSelection: interpretation.replacesSelection,
+            canJudge: ctx.var.assistantModel === JEV_INTERPRETER.model,
+          }
+        : null;
+
+    return handleStarredTurn(ctx, decision, candidate, candidateTtlSelected, hints, bare);
   }
 
   if (decision.intent === "unsupported" && candidate.source !== "topics") {
