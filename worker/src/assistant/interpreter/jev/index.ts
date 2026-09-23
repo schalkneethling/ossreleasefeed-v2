@@ -1,4 +1,9 @@
 import { AssistantModelError, type Interpreter } from "../types";
+import {
+  buildBareRepositoryRequest,
+  selectJudgedRepositories,
+  type BareRepositoryMatch,
+} from "./bare-repos";
 import { candidatesFor } from "./candidates";
 import { EXPECTED_JEV_MODEL, runJev } from "./client";
 import { composeDecision, JevCompositionError } from "./compose";
@@ -8,6 +13,17 @@ import { buildJevState } from "./state";
 export class JevConfigurationError extends Error {
   override name = "JevConfigurationError";
 }
+
+const warnOnModelMismatch = (model: string): void => {
+  if (model !== EXPECTED_JEV_MODEL) {
+    // oxlint-disable-next-line no-console -- Structured Worker diagnostics are the intended output.
+    console.warn({
+      event: "assistant_model_version_mismatch",
+      expected: EXPECTED_JEV_MODEL,
+      received: model.slice(0, 64),
+    });
+  }
+};
 
 // Jev judges; code does the rest. Candidates are found in code, the state
 // carries only the current message, the validated draft summary, and the
@@ -29,14 +45,7 @@ export const interpretWithJev: Interpreter = async (turn, env, signal) => {
     signal,
   );
 
-  if (response.model !== EXPECTED_JEV_MODEL) {
-    // oxlint-disable-next-line no-console -- Structured Worker diagnostics are the intended output.
-    console.warn({
-      event: "assistant_model_version_mismatch",
-      expected: EXPECTED_JEV_MODEL,
-      received: response.model.slice(0, 64),
-    });
-  }
+  warnOnModelMismatch(response.model);
 
   try {
     return composeDecision(turn, candidates, response.answers);
@@ -47,4 +56,20 @@ export const interpretWithJev: Interpreter = async (turn, env, signal) => {
 
     throw error;
   }
+};
+
+// The one second request a turn may make: the starred list had to be fetched
+// before these candidates existed. Returns the candidates Jev judged the
+// message to ask for; client and abort errors propagate to the route.
+export const judgeBareRepositories = async (
+  apiKey: string,
+  message: string,
+  candidates: readonly BareRepositoryMatch[],
+  signal: AbortSignal,
+): Promise<string[]> => {
+  const response = await runJev(apiKey, buildBareRepositoryRequest(message, candidates), signal);
+
+  warnOnModelMismatch(response.model);
+
+  return selectJudgedRepositories(candidates, response.answers);
 };

@@ -15,6 +15,11 @@ export type Interpretation = {
   confidence: number | null;
   // How sure the interpreter is of the intent alone.
   intentConfidence: number | null;
+  // The message asks for the repositories it names to be the only ones,
+  // discarding the draft's subset. Explicit `owner/repo` names carry this as a
+  // `replace` action; bare names, matched later against the starred list, read
+  // it from here.
+  replacesSelection: boolean;
 };
 
 export type Interpreter = (

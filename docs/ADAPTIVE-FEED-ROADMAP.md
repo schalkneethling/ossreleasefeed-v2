@@ -21,6 +21,24 @@ Jev interpreter, which calls the TypeSafe API directly with the pinned model
 back to Llama. Both interpreters return the same decision contract, so the
 planner, validation, copy, and URL generation are unchanged.
 
+#### Bare repository names
+
+People say “just react and vite” or “only the vitest one”, not
+`facebook/react`. For the starred source, once the username is validated and
+the starred list is fetched, code matches message words against the starred
+names (`worker/src/assistant/interpreter/jev/bare-repos.ts`): exact names,
+separators removed, a trailing `.js` dropped, a separated part of a name, or
+the owner, under a stop list and a 50-candidate cap. This runs only when the
+interpreter left the selection open (no explicit `owner/repo` subset, no
+all/first action). Exact one-to-one matches are selected without a model call
+on either interpreter. Ambiguous or inexact matches get one bounded second Jev
+request (message plus at most 40 candidates, one true/false question each,
+selected at 0.7) on the Jev path; on the Llama path, or when that request
+fails, the turn asks the person to choose and offers “Show me the
+repositories” first, logging stage `typesafe-repositories` without content.
+A restriction replaces the existing subset; anything else adds to it, under
+the 25-repository cap.
+
 ## Current status
 
 Phase 3 is complete on `main`.
@@ -44,6 +62,9 @@ The repository currently supports:
   keyed by the next required decision, answered without inference when chosen,
   plus Jev hints for signals that fell just short of being applied and a
   low-intent-confidence “ask again” safety net.
+- Bare repository names for starred feeds: code matching against the fetched
+  starred list, one bounded second Jev request only for ambiguity, and a
+  fallback to asking the person when the model is unavailable or fails.
 - Mixed typed and point-and-click topic and starred configuration.
 - Controlled mode switching, Guided fallback, stale-URL clearing, Start over,
   and versioned seven-day local persistence.

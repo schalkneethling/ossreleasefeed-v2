@@ -200,5 +200,7 @@ export const interpretWithLlama: Interpreter = async (turn, env, signal) => {
     hints: [],
     confidence: null,
     intentConfidence: null,
+    // Llama reports a replacement only as a `replace` action with a subset.
+    replacesSelection: false,
   };
 };

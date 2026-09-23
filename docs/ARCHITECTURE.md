@@ -309,6 +309,29 @@ merged with those valid members and the complete subset is revalidated. The
 flow, and activity and update-frequency changes work through conversation or
 the revealed settings panel in the repository-choice state.
 
+Bare repository names (“just react and vite”, “only the vitest one”) are
+resolved for the starred source in code first
+(`worker/src/assistant/interpreter/jev/bare-repos.ts`). They are considered
+only when the interpreter left the selection open—a `create-or-update-feed`
+decision with no explicit `owner/repo` subset and no all/first action—and
+only once the username is validated and the user's starred list is fetched,
+so every candidate is a repository the user actually starred. Message tokens
+are compared with each starred name (exactly, with separators removed, with a
+trailing `.js` dropped, as a separated part of the name, or as the owner) under
+a small stop list and a 50-candidate cap. When every mention is the exact name
+of exactly one starred repository, the selection is made without a model call,
+on either interpreter. Otherwise, and only on the Jev path, one bounded second
+TypeSafe request carries just the message and at most 40 candidates, with one
+Noul per candidate (“does the message ask for this repository to be
+included?”); candidates judged at or above 0.7 are selected. The result
+replaces the existing subset when the interpreter read the message as a
+restriction and is merged with it otherwise, under the same 25-repository cap.
+If that request times out, fails, or returns an invalid body, the turn does not
+fail: it logs stage `typesafe-repositories` (kind and status only) and asks
+the person to choose, offering “Show me the repositories” first—the same
+reply an ambiguous match gets on the Llama path, where no second request is
+made. A caller abort during the second request still returns `408`.
+
 Informational turns remain conversational. Feed-type questions return a short
 text explanation, and topic-discovery questions use the current featured-topic
 service to provide examples without revealing controls. The exact, narrow
