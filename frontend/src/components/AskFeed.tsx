@@ -26,6 +26,7 @@ type AskFeedProps = {
   revision: number;
   showUi: boolean;
   state: AdaptiveState;
+  suggestions: string[];
   ttlSelected: boolean;
   transcript: AssistantHistoryTurn[];
   onActivityChange: (activityType: FeedDraft["activityType"]) => void;
@@ -42,6 +43,7 @@ type AskFeedProps = {
   onStartOver: () => void;
   onTopicsChange: (topics: string[]) => void;
   onTtlChange: (ttl: FeedTtl) => void;
+  onTurnSubmitted: () => void;
   onUsernameChange: (username: string) => void;
 };
 
@@ -62,6 +64,7 @@ export function AskFeed({
   revision,
   showUi,
   state,
+  suggestions,
   ttlSelected,
   transcript,
   onActivityChange,
@@ -74,6 +77,7 @@ export function AskFeed({
   onStartOver,
   onTopicsChange,
   onTtlChange,
+  onTurnSubmitted,
   onUsernameChange,
 }: AskFeedProps) {
   const [conversationOpen, setConversationOpen] = useState(true);
@@ -82,9 +86,11 @@ export function AskFeed({
   const [submitting, setSubmitting] = useState(false);
   const inputId = useId();
   const counterId = useId();
+  const enterHintId = useId();
   const formLegendId = useId();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const experimentKeyRef = useRef(getExperimentKey());
+  const lastAttemptRef = useRef<string | null>(null);
   const postSubmitFocusRef = useRef<PostSubmitFocus>(null);
   const revisionRef = useRef(revision);
   const { beginCycle, cancelCycle, completeCycle } = useInteractionCycle(REQUEST_TIMEOUT_MS);
@@ -99,6 +105,7 @@ export function AskFeed({
     : submitting
       ? "Interpreting and validating your request"
       : lastAnnouncement;
+  const showSuggestions = active && suggestions.length > 0;
   revisionRef.current = revision;
 
   useEffect(() => {
@@ -124,22 +131,29 @@ export function AskFeed({
     composerRef.current?.focus();
   }, [active, submitting]);
 
-  const submit = async (event?: FormEvent) => {
-    event?.preventDefault();
-
-    const trimmed = composer.trim();
+  /**
+   * The single turn path. The composer form, a suggested reply, and Retry all
+   * send their text through here, so validation, cancellation, stale-revision
+   * handling, and the transcript entry are identical however a message starts.
+   */
+  const submitMessage = async (message: string) => {
+    const trimmed = message.trim();
 
     if (trimmed.toLowerCase() === "start over") {
       startOver();
+      // A suggested reply is removed by the reset, so focus needs a stable home.
+      composerRef.current?.focus();
       return;
     }
+
+    lastAttemptRef.current = message;
 
     if (!trimmed) {
       setError("Enter a request before sending it.");
       return;
     }
 
-    if (messageTooLong) {
+    if (message.length > ASSISTANT_MESSAGE_LIMIT) {
       setError(
         `Your request exceeds the ${ASSISTANT_MESSAGE_LIMIT} character limit. Shorten it before trying again.`,
       );
@@ -149,6 +163,7 @@ export function AskFeed({
     const controller = beginCycle();
     const baseRevision = revision;
     postSubmitFocusRef.current = null;
+    onTurnSubmitted();
     setSubmitting(true);
     setError(null);
     setLastAnnouncement("");
@@ -220,8 +235,18 @@ export function AskFeed({
     }
   };
 
+  const submitComposer = (event: FormEvent) => {
+    event.preventDefault();
+    void submitMessage(composer);
+  };
+
+  const retry = () => {
+    void submitMessage(lastAttemptRef.current ?? composer);
+  };
+
   const startOver = () => {
     cancelCycle();
+    lastAttemptRef.current = null;
     setConversationOpen(true);
     setError(null);
     setLastAnnouncement("Started over with an empty feed.");
@@ -290,6 +315,26 @@ export function AskFeed({
                   {turn.role === "user" ? "You" : "OSSReleaseFeed"}
                 </span>
                 <p>{turn.content}</p>
+                {showSuggestions && turn.role === "assistant" && index === transcript.length - 1 ? (
+                  <fieldset
+                    aria-label="Suggested replies"
+                    className="ask-feed__suggestions"
+                    disabled={submitting}
+                  >
+                    {suggestions.map((suggestion) => (
+                      <button
+                        className="ask-feed__suggestion"
+                        key={suggestion}
+                        onClick={() => {
+                          void submitMessage(suggestion);
+                        }}
+                        type="button"
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </fieldset>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -300,7 +345,7 @@ export function AskFeed({
         <section className="ask-feed__error" role="alert">
           <p>{error}</p>
           <div className="ask-feed__error-actions">
-            <button className="btn-secondary" onClick={() => submit()} type="button">
+            <button className="btn-secondary" onClick={retry} type="button">
               Retry
             </button>
             <button className="btn-secondary" onClick={() => onGuidedFallback(false)} type="button">
@@ -310,7 +355,7 @@ export function AskFeed({
         </section>
       ) : null}
 
-      <form aria-labelledby={formLegendId} className="ask-feed__form" onSubmit={submit}>
+      <form aria-labelledby={formLegendId} className="ask-feed__form" onSubmit={submitComposer}>
         <fieldset className="ask-feed__fieldset" disabled={submitting}>
           <legend className="ask-feed__legend" id={formLegendId}>
             {transcript.length > 0 ? "Continue the conversation" : "Ask for a feed"}
@@ -319,7 +364,7 @@ export function AskFeed({
             {transcript.length > 0 ? "Your next message" : "Your request"}
           </label>
           <textarea
-            aria-describedby={counterId}
+            aria-describedby={`${counterId} ${enterHintId}`}
             aria-invalid={messageTooLong}
             className="ask-feed__input"
             id={inputId}
@@ -327,11 +372,37 @@ export function AskFeed({
               onComposerChange(event.target.value);
               setError(null);
             }}
+            onKeyDown={(event) => {
+              if (
+                event.key !== "Enter" ||
+                event.shiftKey ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.altKey
+              ) {
+                return;
+              }
+
+              if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                return;
+              }
+
+              event.preventDefault();
+
+              if (submitting || !composer.trim()) {
+                return;
+              }
+
+              void submitMessage(composer);
+            }}
             placeholder="Create a feed for CSS, JavaScript, and TypeScript that updates every 24 hours."
             ref={composerRef}
             rows={4}
             value={composer}
           />
+          <p className="ask-feed__rate-policy" id={enterHintId}>
+            Press Enter to send, Shift+Enter for a new line.
+          </p>
           <output
             aria-live="polite"
             className={`ask-feed__counter${messageTooLong ? " ask-feed__counter--exceeded" : ""}`}

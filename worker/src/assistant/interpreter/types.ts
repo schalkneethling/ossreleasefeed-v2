@@ -7,10 +7,20 @@ export type InterpreterTurn = AssistantTurnRequest & {
   requiredDecision: AssistantRequiredDecision;
 };
 
+export type Interpretation = {
+  decision: ModelDecision;
+  // Catalogue suggestions for signals the interpreter saw but did not apply.
+  hints: string[];
+  // The least certain judgment consumed; `null` when the interpreter has none.
+  confidence: number | null;
+  // How sure the interpreter is of the intent alone.
+  intentConfidence: number | null;
+};
+
 export type Interpreter = (
   turn: InterpreterTurn,
   env: WorkerBindings,
   signal: AbortSignal,
-) => Promise<ModelDecision>;
+) => Promise<Interpretation>;
 
 export class AssistantModelError extends Error {}

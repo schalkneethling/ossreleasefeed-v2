@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_FEED_DRAFT, isModelDecision } from "../../worker/src/assistant/contracts";
 import {
+  ACTION_HINT_FLOOR,
+  ACTION_THRESHOLD,
   composeDecision,
+  HINT_FLOOR,
+  INTENT_CLARIFY_THRESHOLD,
   JevCompositionError,
+  STATED_THRESHOLD,
   type ComposedDecision,
 } from "../../worker/src/assistant/interpreter/jev/compose";
 import {
@@ -573,5 +578,379 @@ describe("composeDecision - confidence", () => {
 
     expect(result.confidence).toBe(0.61);
     expectValidDecision(result);
+  });
+});
+
+describe("composeDecision - hints", () => {
+  const starredTurn: JevTurn = {
+    ...baseTurn,
+    draft: { ...DEFAULT_FEED_DRAFT, source: "starred", username: "octocat" },
+    requiredDecision: "repository-selection",
+  };
+  const topicsTurn: JevTurn = {
+    ...baseTurn,
+    draft: { ...DEFAULT_FEED_DRAFT, source: "topics", topics: ["css"] },
+    requiredDecision: "feed-settings",
+  };
+  const mutating = choice("create-or-update-feed", 0.9);
+
+  it("names the bands it uses", () => {
+    expect(HINT_FLOOR).toBe(0.3);
+    expect(ACTION_HINT_FLOOR).toBe(0.4);
+    expect(INTENT_CLARIFY_THRESHOLD).toBe(0.4);
+    expect(HINT_FLOOR).toBeLessThan(STATED_THRESHOLD);
+    expect(ACTION_HINT_FLOOR).toBeLessThan(ACTION_THRESHOLD);
+  });
+
+  it("has no hints when nothing was half-heard", () => {
+    const result = composeDecision(starredTurn, baseCandidates, { intent: mutating });
+
+    expect(result.hints).toEqual([]);
+    expectValidDecision(result);
+  });
+
+  describe("wants_all_starred", () => {
+    it.each([0.4, 0.55, 0.69])("hints at %f, inside the band", (probability) => {
+      const result = composeDecision(starredTurn, baseCandidates, {
+        intent: mutating,
+        wants_all_starred: noul(probability),
+      });
+
+      expect(result.hints).toEqual(["Include all of them"]);
+      expect(result.decision.repoSelectionAction).toBeUndefined();
+      expectValidDecision(result);
+    });
+
+    it("does not hint below the floor", () => {
+      const result = composeDecision(starredTurn, baseCandidates, {
+        intent: mutating,
+        wants_all_starred: noul(0.39),
+      });
+
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint when the action was applied", () => {
+      const result = composeDecision(starredTurn, baseCandidates, {
+        intent: mutating,
+        wants_all_starred: noul(0.7),
+      });
+
+      expect(result.decision.repoSelectionAction).toEqual({ kind: "all" });
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint when the resulting source is not starred", () => {
+      const result = composeDecision(topicsTurn, baseCandidates, {
+        intent: mutating,
+        wants_all_starred: noul(0.6),
+      });
+
+      expect(result.hints).toEqual([]);
+    });
+
+    it("hints when the message itself makes the source starred", () => {
+      const result = composeDecision(
+        baseTurn,
+        { ...baseCandidates, usernames: ["octocat"] },
+        {
+          intent: mutating,
+          username_stated: noul(0.9),
+          username: choice("octocat", 0.9),
+          wants_all_starred: noul(0.6),
+        },
+      );
+
+      expect(result.decision.draftPatch).toEqual({ source: "starred", username: "octocat" });
+      expect(result.hints).toEqual(["Include all of them"]);
+    });
+
+    it("does not hint when repositories were named", () => {
+      const result = composeDecision(
+        starredTurn,
+        { ...baseCandidates, repositories: ["octocat/hello-world"] },
+        { intent: mutating, wants_all_starred: noul(0.6) },
+      );
+
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint when a first-N action was applied", () => {
+      const result = composeDecision(
+        starredTurn,
+        { ...baseCandidates, firstCount: 5 },
+        { intent: mutating, asks_first_n: noul(0.9), wants_all_starred: noul(0.6) },
+      );
+
+      expect(result.decision.repoSelectionAction).toEqual({ kind: "first", count: 5 });
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint when the message refers back to an existing selection", () => {
+      const result = composeDecision(starredTurn, baseCandidates, {
+        intent: mutating,
+        refers_to_existing_selection: noul(0.9),
+        wants_all_starred: noul(0.6),
+      });
+
+      expect(result.hints).toEqual([]);
+    });
+  });
+
+  describe("frequency_stated", () => {
+    it.each([0.3, 0.4, 0.49])("hints the code-parsed value at %f", (probability) => {
+      const result = composeDecision(
+        topicsTurn,
+        { ...baseCandidates, frequency: { kind: "supported", ttl: 86400 } },
+        // The model's own reading loses to the duration parsed in code.
+        {
+          intent: mutating,
+          frequency_stated: noul(probability),
+          frequency_value: choice("1 hour", 0.9),
+        },
+      );
+
+      expect(result.hints).toEqual(["24 hours"]);
+      expect(result.decision.draftPatch).toEqual({});
+      expectValidDecision(result);
+    });
+
+    it.each([
+      ["1 hour", "1 hour"],
+      ["6 hours", "6 hours"],
+      ["24 hours", "24 hours"],
+      ["1 week", "1 week"],
+    ])("hints the model's confident %s choice when nothing was parsed", (label, hint) => {
+      const result = composeDecision(topicsTurn, baseCandidates, {
+        intent: mutating,
+        frequency_stated: noul(0.4),
+        frequency_value: choice(label, 0.5),
+      });
+
+      expect(result.hints).toEqual([hint]);
+    });
+
+    it("does not hint outside the band", () => {
+      const candidates: TurnCandidates = {
+        ...baseCandidates,
+        frequency: { kind: "supported", ttl: 86400 },
+      };
+      const below = composeDecision(topicsTurn, candidates, {
+        intent: mutating,
+        frequency_stated: noul(0.29),
+      });
+      const applied = composeDecision(topicsTurn, candidates, {
+        intent: mutating,
+        frequency_stated: noul(0.5),
+      });
+
+      expect(below.hints).toEqual([]);
+      expect(applied.decision.draftPatch).toEqual({ ttl: 86400 });
+      expect(applied.hints).toEqual([]);
+    });
+
+    it("does not hint an unsure or unsupported choice", () => {
+      const unsure = composeDecision(topicsTurn, baseCandidates, {
+        intent: mutating,
+        frequency_stated: noul(0.4),
+        frequency_value: choice("24 hours", 0.49),
+      });
+      const unsupported = composeDecision(topicsTurn, baseCandidates, {
+        intent: mutating,
+        frequency_stated: noul(0.4),
+        frequency_value: choice("some other interval", 0.9),
+      });
+
+      expect(unsure.hints).toEqual([]);
+      expect(unsupported.hints).toEqual([]);
+    });
+
+    it("does not hint the model's choice when code parsed an unsupported duration", () => {
+      const result = composeDecision(
+        topicsTurn,
+        { ...baseCandidates, frequency: { kind: "unsupported" } },
+        { intent: mutating, frequency_stated: noul(0.4), frequency_value: choice("1 hour", 0.9) },
+      );
+
+      expect(result.hints).toEqual([]);
+    });
+  });
+
+  describe("source_stated", () => {
+    it.each([
+      ["topics", "Create a topic feed"],
+      ["starred", "Use starred repositories"],
+    ])("hints a half-heard %s source", (source, hint) => {
+      for (const probability of [0.3, 0.49]) {
+        const result = composeDecision(baseTurn, baseCandidates, {
+          intent: mutating,
+          source_stated: noul(probability),
+          source_value: choice(source, 0.5),
+        });
+
+        expect(result.hints).toEqual([hint]);
+        expect(result.decision.draftPatch).toEqual({});
+        expectValidDecision(result);
+      }
+    });
+
+    it("does not hint outside the band", () => {
+      const below = composeDecision(baseTurn, baseCandidates, {
+        intent: mutating,
+        source_stated: noul(0.29),
+        source_value: choice("topics", 0.9),
+      });
+      const applied = composeDecision(baseTurn, baseCandidates, {
+        intent: mutating,
+        source_stated: noul(0.5),
+        source_value: choice("topics", 0.9),
+      });
+
+      expect(below.hints).toEqual([]);
+      expect(applied.decision.draftPatch).toEqual({ source: "topics" });
+      expect(applied.hints).toEqual([]);
+    });
+
+    it("does not hint an unsure source choice", () => {
+      const result = composeDecision(baseTurn, baseCandidates, {
+        intent: mutating,
+        source_stated: noul(0.4),
+        source_value: choice("topics", 0.49),
+      });
+
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint the source the draft already has", () => {
+      const result = composeDecision(topicsTurn, baseCandidates, {
+        intent: mutating,
+        source_stated: noul(0.4),
+        source_value: choice("topics", 0.9),
+      });
+
+      expect(result.hints).toEqual([]);
+    });
+
+    it("does not hint a source the message already implied", () => {
+      const result = composeDecision(
+        baseTurn,
+        { ...baseCandidates, topics: [{ slug: "rust", span: [0, 0] }] },
+        {
+          intent: mutating,
+          [namesTopicId(0)]: noul(0.9),
+          source_stated: noul(0.4),
+          source_value: choice("topics", 0.9),
+        },
+      );
+
+      expect(result.decision.draftPatch).toEqual({ source: "topics", topics: ["rust"] });
+      expect(result.hints).toEqual([]);
+    });
+  });
+
+  it("orders several hints source, repositories, frequency", () => {
+    const result = composeDecision(
+      { ...starredTurn, draft: { ...starredTurn.draft } },
+      { ...baseCandidates, frequency: { kind: "supported", ttl: 604800 } },
+      {
+        intent: mutating,
+        source_stated: noul(0.4),
+        source_value: choice("topics", 0.9),
+        wants_all_starred: noul(0.6),
+        frequency_stated: noul(0.4),
+      },
+    );
+
+    expect(result.hints).toEqual(["Create a topic feed", "Include all of them", "1 week"]);
+  });
+
+  const halfHeard: Record<string, JevAnswer> = {
+    source_stated: noul(0.4),
+    source_value: choice("topics", 0.9),
+    wants_all_starred: noul(0.6),
+    frequency_stated: noul(0.4),
+    frequency_value: choice("24 hours", 0.9),
+  };
+
+  it.each([
+    "explain-capabilities",
+    "list-topics",
+    "list-repositories",
+    "list-settings",
+    "show-ui",
+    "hide-ui",
+    "unsupported",
+  ])("never hints for a %s result", (intent) => {
+    const result = composeDecision(starredTurn, baseCandidates, {
+      ...halfHeard,
+      intent: choice(intent, 0.9),
+    });
+
+    expect(result.hints).toEqual([]);
+    expectValidDecision(result);
+  });
+
+  it("never hints for an unsupported interval", () => {
+    const result = composeDecision(
+      starredTurn,
+      { ...baseCandidates, frequency: { kind: "unsupported" } },
+      { ...halfHeard, intent: mutating, frequency_stated: noul(0.9) },
+    );
+
+    expect(result.decision.unsupportedReason).toBe("interval");
+    expect(result.hints).toEqual([]);
+  });
+
+  it("never hints for an injection discard", () => {
+    const result = composeDecision(starredTurn, baseCandidates, {
+      ...halfHeard,
+      intent: mutating,
+      injection_attempt: noul(0.9),
+    });
+
+    expect(result.decision).toEqual({
+      intent: "unsupported",
+      draftPatch: {},
+      unsupportedReason: "request",
+    });
+    expect(result.hints).toEqual([]);
+  });
+
+  it("leaves the decision untouched by the half-heard signals", () => {
+    const withSignals = composeDecision(starredTurn, baseCandidates, {
+      ...halfHeard,
+      intent: mutating,
+    });
+    const without = composeDecision(starredTurn, baseCandidates, { intent: mutating });
+
+    expect(withSignals.decision).toEqual(without.decision);
+  });
+});
+
+describe("composeDecision - intent confidence", () => {
+  it("reports the intent answer's confidence apart from the minimum", () => {
+    const result = composeDecision(
+      baseTurn,
+      { ...baseCandidates, topics: [{ slug: "css", span: [0, 0] }] },
+      { intent: choice("create-or-update-feed", 0.95), [namesTopicId(0)]: noul(0.72) },
+    );
+
+    expect(result.intentConfidence).toBe(0.95);
+    expect(result.confidence).toBe(0.72);
+  });
+
+  it.each(["list-topics", "unsupported"])("reports it for a %s result", (intent) => {
+    expect(
+      composeDecision(baseTurn, baseCandidates, { intent: choice(intent, 0.37) }).intentConfidence,
+    ).toBe(0.37);
+  });
+
+  it("reports it for an injection discard", () => {
+    const result = composeDecision(baseTurn, baseCandidates, {
+      intent: choice("create-or-update-feed", 0.35),
+      injection_attempt: noul(0.95),
+    });
+
+    expect(result.intentConfidence).toBe(0.35);
   });
 });

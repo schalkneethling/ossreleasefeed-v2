@@ -195,5 +195,10 @@ export const interpretWithLlama: Interpreter = async (turn, env, signal) => {
     { signal },
   );
 
-  return parseModelDecision(result);
+  return {
+    decision: parseModelDecision(result),
+    hints: [],
+    confidence: null,
+    intentConfidence: null,
+  };
 };

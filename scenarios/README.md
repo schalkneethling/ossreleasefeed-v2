@@ -46,6 +46,7 @@ failed test can be traced back to its acceptance contract.
 | `adaptive_topic_001` | `tests/e2e/adaptive-feed.spec.ts`                                               |
 | `adaptive_topic_002` | `tests/e2e/adaptive-feed.spec.ts` and `tests/integration/worker-routes.test.ts` |
 | `adaptive_topic_003` | `tests/e2e/adaptive-feed.spec.ts`                                               |
+| `adaptive_topic_004` | `tests/e2e/adaptive-feed.spec.ts` and `tests/unit/adaptive-session.test.ts`     |
 | `starred_001`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |
 | `starred_002`        | `tests/integration/worker-routes.test.ts` and `tests/e2e/adaptive-feed.spec.ts` |
 | `starred_003`        | `tests/e2e/starred-step.spec.ts` and `tests/e2e/adaptive-feed.spec.ts`          |

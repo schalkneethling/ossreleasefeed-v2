@@ -262,6 +262,31 @@ version the turn still succeeds and one `assistant_model_version_mismatch`
 warning is logged. The Ask composer discloses that typed messages are processed
 by TypeSafe and that conversation history is not sent.
 
+Every successful turn response carries `suggestions`: up to four suggested
+replies. The catalogue is application-owned copy in the planner
+(`worker/src/assistant/planner.ts`), keyed by the required decision of the
+response, so a suggestion always answers the question being shown; “Show UI”
+is left out while the interface is visible. A suggestion's text is exactly the
+message submitted when it is chosen, through the normal turn path. When that
+message arrives at the required decision that offers it, the planner supplies
+a fixed (canned) decision and inference is skipped—no Workers AI binding,
+TypeSafe key, or model call is needed—but the rate limits still apply because
+several of these decisions call GitHub, and the decision then runs through the
+same planner code as a model decision. The same words anywhere else are
+interpreted like any other message. Each turn response names what
+handled it in an `X-Assistant-Interpreter` header (a model id, or
+`canned-suggestion`), so a flag or key problem is visible in the network panel;
+the header never carries content and is absent when no interpreter was chosen. The Jev composer also reports hints:
+catalogue strings for a source, an all-repositories request, or a supported
+interval whose judgment fell just short of its threshold and was therefore not
+applied. Hints are listed first, then the catalogue, de-duplicated and capped
+at four; the model never authors a suggestion. As a safety net, when Jev's
+confidence in the intent itself is below 0.4 the Worker does not act: it
+returns the request's state and draft unchanged (a completed feed keeps its
+URL) and asks the current question again. An injection discard takes
+precedence over that reply, and Llama reports no confidence, so it never
+triggers it.
+
 The browser and Worker share semantic state/draft invariants for source choice,
 topic editing, username entry, repository choice, settings editing, ready, and
 recovery. Application code derives editable state from the discriminated draft;

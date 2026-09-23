@@ -57,7 +57,7 @@ app.use(
     },
     allowMethods: ["GET", "POST"],
     allowHeaders: ["Content-Type", "X-Experiment-Key"],
-    exposeHeaders: ["Retry-After"],
+    exposeHeaders: ["Retry-After", "X-Assistant-Interpreter"],
     maxAge: 86400,
   }),
 );

@@ -174,6 +174,56 @@
   white-space: pre-wrap;
 }
 
+.ask-feed__suggestions {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-3) 0;
+  margin-inline: 0;
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.ask-feed__suggestion {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-accent-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-accent-deep);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  padding-block: var(--space-2);
+  padding-inline: var(--space-4);
+  text-align: start;
+}
+
+.ask-feed__suggestion:hover {
+  background-color: var(--color-accent-subtle);
+}
+
+.ask-feed__suggestion:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-accent-strong);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.ask-feed__suggestion:disabled {
+  background-color: var(--color-surface);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Touch input needs a 44px target; pointer users keep the compact chip. */
+@media (pointer: coarse) {
+  .ask-feed__suggestion {
+    min-block-size: 2.75rem;
+  }
+}
+
 .ask-feed__empty {
   color: var(--color-text-muted);
   margin: 0;

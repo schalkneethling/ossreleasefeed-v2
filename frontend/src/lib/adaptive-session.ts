@@ -9,11 +9,12 @@ import {
   isFeedDraft,
   isSecureFeedUrl,
   isRepoSelectionComplete,
+  isSuggestionList,
   isStateConsistentWithDraft,
 } from "./assistant";
 
 export const ADAPTIVE_SESSION_STORAGE_KEY = "ossreleasefeed:adaptive-session";
-export const ADAPTIVE_SESSION_VERSION = 4;
+export const ADAPTIVE_SESSION_VERSION = 5;
 export const ADAPTIVE_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 export const TRANSCRIPT_MAX_TURNS = 12;
 export const TRANSCRIPT_MAX_CHARACTERS = 6_000;
@@ -35,6 +36,11 @@ export type AdaptiveWorkspace = {
   ttlSelected: boolean;
   selectedMode: InteractionMode;
   builderStarted: boolean;
+  /**
+   * Suggested replies for the latest assistant message. They answer that one
+   * message, so every action that moves the workspace past it clears them.
+   */
+  suggestions: string[];
 };
 
 export const DEFAULT_ADAPTIVE_WORKSPACE: AdaptiveWorkspace = {
@@ -49,6 +55,7 @@ export const DEFAULT_ADAPTIVE_WORKSPACE: AdaptiveWorkspace = {
   ttlSelected: false,
   selectedMode: "guided",
   builderStarted: false,
+  suggestions: [],
 };
 
 export type AdaptiveAction =
@@ -57,6 +64,7 @@ export type AdaptiveAction =
   | { type: "start-guided" }
   | { type: "fallback-guided" }
   | { type: "set-composer"; composer: string }
+  | { type: "turn-submitted" }
   | { type: "set-source"; source: FeedDraft["source"] }
   | { type: "set-topics"; topics: string[] }
   | { type: "set-username"; username: string }
@@ -148,6 +156,7 @@ const updateDraft = (
     issues: [],
     showUi: workspace.selectedMode === "ask" ? true : workspace.showUi,
     ttlSelected: workspace.ttlSelected || "ttl" in patch,
+    suggestions: [],
   };
 };
 
@@ -174,7 +183,12 @@ export const adaptiveWorkspaceReducer = (
       return action.workspace;
     }
     case "select-mode": {
-      return { ...workspace, revision: workspace.revision + 1, selectedMode: action.mode };
+      return {
+        ...workspace,
+        revision: workspace.revision + 1,
+        selectedMode: action.mode,
+        suggestions: [],
+      };
     }
     case "start-guided": {
       return {
@@ -182,6 +196,7 @@ export const adaptiveWorkspaceReducer = (
         revision: workspace.revision + 1,
         builderStarted: true,
         selectedMode: "guided",
+        suggestions: [],
       };
     }
     case "fallback-guided": {
@@ -190,10 +205,20 @@ export const adaptiveWorkspaceReducer = (
         revision: workspace.revision + 1,
         builderStarted: true,
         selectedMode: "guided",
+        suggestions: [],
       };
     }
     case "set-composer": {
       return { ...workspace, revision: workspace.revision + 1, composer: action.composer };
+    }
+    case "turn-submitted": {
+      // The revision is left alone on purpose: the in-flight turn captured it as
+      // its base revision, and bumping it here would make that response stale.
+      if (workspace.suggestions.length === 0) {
+        return workspace;
+      }
+
+      return { ...workspace, suggestions: [] };
     }
     case "set-source": {
       if (action.source === "topics") {
@@ -244,6 +269,7 @@ export const adaptiveWorkspaceReducer = (
         issues: [],
         showUi: true,
         ttlSelected: true,
+        suggestions: [],
       };
     }
     case "assistant-result": {
@@ -258,7 +284,12 @@ export const adaptiveWorkspaceReducer = (
           action.response.ttlSelected,
         )
       ) {
-        return { ...workspace, adaptiveState: "recoverable-error", feedUrl: null };
+        return {
+          ...workspace,
+          adaptiveState: "recoverable-error",
+          feedUrl: null,
+          suggestions: [],
+        };
       }
 
       return {
@@ -272,6 +303,7 @@ export const adaptiveWorkspaceReducer = (
         issues: action.response.issues,
         showUi: action.response.showUi,
         ttlSelected: action.response.ttlSelected,
+        suggestions: [...action.response.suggestions],
       };
     }
     case "reset": {
@@ -365,7 +397,8 @@ const isPersistedWorkspace = (value: unknown, now: number): value is PersistedAd
   return (
     Array.isArray(value.transcript) &&
     value.transcript.every(isHistoryTurn) &&
-    isStringArray(value.issues, MAX_ISSUES)
+    isStringArray(value.issues, MAX_ISSUES) &&
+    isSuggestionList(value.suggestions)
   );
 };
 
@@ -392,6 +425,7 @@ export const parsePersistedWorkspace = (
       ttlSelected: parsed.ttlSelected,
       selectedMode: parsed.selectedMode,
       builderStarted: parsed.builderStarted,
+      suggestions: parsed.suggestions,
     };
   } catch {
     return null;

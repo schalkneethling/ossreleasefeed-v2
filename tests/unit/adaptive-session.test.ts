@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   adaptiveWorkspaceReducer,
+  type AdaptiveAction,
   ADAPTIVE_SESSION_MAX_AGE_MS,
   ADAPTIVE_SESSION_VERSION,
   capTranscript,
@@ -21,6 +22,7 @@ const readyResponse = {
   feedUrl: "https://example.com/feed/token",
   showUi: true,
   ttlSelected: true,
+  suggestions: [],
 };
 
 describe("adaptive workspace", () => {
@@ -408,5 +410,156 @@ describe("adaptive workspace", () => {
 
     expect(persisted.composer).toHaveLength(10_000);
     expect(persisted.issues).toEqual(["Issue 0", "Issue 1", "Issue 2", "Issue 3", "Issue 4"]);
+  });
+
+  describe("suggested replies", () => {
+    const settingsSuggestions = ["1 hour", "6 hours", "24 hours", "1 week"];
+    const settingsResponse = {
+      state: "edit-settings" as const,
+      draft: {
+        ...DEFAULT_ADAPTIVE_WORKSPACE.draft,
+        source: "topics" as const,
+        topics: ["css"],
+      },
+      message: "How often should the feed update?",
+      issues: [],
+      feedUrl: null,
+      showUi: false,
+      ttlSelected: false,
+      suggestions: settingsSuggestions,
+    };
+    const withSuggestions = adaptiveWorkspaceReducer(
+      { ...DEFAULT_ADAPTIVE_WORKSPACE, selectedMode: "ask" },
+      {
+        type: "assistant-result",
+        baseRevision: 0,
+        userMessage: "Create a CSS feed",
+        response: settingsResponse,
+      },
+    );
+
+    it("stores the suggestions from an assistant result", () => {
+      expect(DEFAULT_ADAPTIVE_WORKSPACE.suggestions).toEqual([]);
+      expect(withSuggestions.suggestions).toEqual(settingsSuggestions);
+    });
+
+    it("replaces earlier suggestions with those of the latest assistant result", () => {
+      const next = adaptiveWorkspaceReducer(withSuggestions, {
+        type: "assistant-result",
+        baseRevision: withSuggestions.revision,
+        userMessage: "24 hours",
+        response: { ...readyResponse, suggestions: ["Start over"] },
+      });
+
+      expect(next.suggestions).toEqual(["Start over"]);
+    });
+
+    const clearingActions: AdaptiveAction[] = [
+      { type: "set-source", source: "starred" },
+      { type: "set-topics", topics: ["css", "javascript"] },
+      { type: "set-username", username: "octocat" },
+      { type: "set-repo-selection", repoSelection: { kind: "all" } },
+      { type: "set-activity", activityType: "all" },
+      { type: "set-ttl", ttl: 86400 },
+      { type: "set-feed-url", feedUrl: "https://example.com/feed/token" },
+      { type: "select-mode", mode: "guided" },
+      { type: "start-guided" },
+      { type: "fallback-guided" },
+      { type: "turn-submitted" },
+      { type: "reset" },
+    ];
+
+    it.each(clearingActions)("clears the suggestions on $type", (action) => {
+      expect(adaptiveWorkspaceReducer(withSuggestions, action).suggestions).toEqual([]);
+    });
+
+    it("keeps the suggestions while the user types in the composer", () => {
+      const typing = adaptiveWorkspaceReducer(withSuggestions, {
+        type: "set-composer",
+        composer: "every",
+      });
+
+      expect(typing.suggestions).toEqual(settingsSuggestions);
+    });
+
+    it("clears the suggestions for a new turn without making its response stale", () => {
+      const submitted = adaptiveWorkspaceReducer(withSuggestions, { type: "turn-submitted" });
+      const answered = adaptiveWorkspaceReducer(submitted, {
+        type: "assistant-result",
+        baseRevision: withSuggestions.revision,
+        userMessage: "24 hours",
+        response: { ...readyResponse, suggestions: ["Start over"] },
+      });
+
+      expect(submitted.revision).toBe(withSuggestions.revision);
+      expect(answered.adaptiveState).toBe("ready");
+      expect(answered.suggestions).toEqual(["Start over"]);
+    });
+
+    it("clears the suggestions when an assistant result is inconsistent with its draft", () => {
+      const rejected = adaptiveWorkspaceReducer(withSuggestions, {
+        type: "assistant-result",
+        baseRevision: withSuggestions.revision,
+        userMessage: "24 hours",
+        response: {
+          ...readyResponse,
+          draft: DEFAULT_ADAPTIVE_WORKSPACE.draft,
+          suggestions: ["Start over"],
+        },
+      });
+
+      expect(rejected.adaptiveState).toBe("recoverable-error");
+      expect(rejected.suggestions).toEqual([]);
+    });
+
+    it("round-trips the suggestions through a version 5 persisted session", () => {
+      const now = Date.UTC(2026, 8, 20);
+      const setItem = vi.fn<(key: string, value: string) => void>();
+      vi.stubGlobal("window", {
+        localStorage: { setItem },
+      });
+
+      persistAdaptiveWorkspace(withSuggestions, now);
+
+      const serialized = setItem.mock.calls[0]?.[1] as string;
+      const persisted = JSON.parse(serialized) as { version: number; suggestions: string[] };
+
+      expect(ADAPTIVE_SESSION_VERSION).toBe(5);
+      expect(persisted.version).toBe(5);
+      expect(persisted.suggestions).toEqual(settingsSuggestions);
+      expect(parsePersistedWorkspace(serialized, now + 1_000)).toEqual(withSuggestions);
+    });
+
+    it("discards a version 4 session instead of migrating it", () => {
+      const now = Date.UTC(2026, 8, 20);
+      const { suggestions: _suggestions, ...versionFourWorkspace } = DEFAULT_ADAPTIVE_WORKSPACE;
+      const versionFour = { ...versionFourWorkspace, version: 4, savedAt: now };
+
+      expect(parsePersistedWorkspace(JSON.stringify(versionFour), now)).toBeNull();
+      expect(
+        parsePersistedWorkspace(JSON.stringify({ ...versionFour, suggestions: [] }), now),
+      ).toBeNull();
+    });
+
+    it.each([
+      ["a missing list", undefined],
+      ["a non-array", "24 hours"],
+      ["more than four items", ["1", "2", "3", "4", "5"]],
+      ["an empty suggestion", [""]],
+      ["a suggestion over 60 characters", ["x".repeat(61)]],
+      ["a padded suggestion", [" 24 hours"]],
+      ["duplicate suggestions", ["24 hours", "24 hours"]],
+      ["a non-string suggestion", [24]],
+    ])("drops a persisted session with %s", (_label, suggestions) => {
+      const now = Date.UTC(2026, 8, 20);
+      const serialized = JSON.stringify({
+        ...DEFAULT_ADAPTIVE_WORKSPACE,
+        suggestions,
+        version: ADAPTIVE_SESSION_VERSION,
+        savedAt: now,
+      });
+
+      expect(parsePersistedWorkspace(serialized, now)).toBeNull();
+    });
   });
 });

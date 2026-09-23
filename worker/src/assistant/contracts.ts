@@ -67,6 +67,9 @@ export type AssistantTurnResponse = {
   feedUrl: string | null;
   showUi: boolean;
   ttlSelected: boolean;
+  // Suggested replies: at most four unique strings, each both the chip label
+  // and the exact message submitted when the chip is clicked.
+  suggestions: string[];
 };
 
 export type ModelDraftPatch = Omit<Partial<FeedDraft>, "source"> & {
