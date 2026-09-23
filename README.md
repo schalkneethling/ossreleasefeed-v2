@@ -102,6 +102,17 @@ is missing on the deployed Worker, so create it first:
 pnpm --filter worker exec wrangler secret put TYPESAFE_API_KEY
 ```
 
+That command needs the Worker to exist. For a brand-new Worker (a fresh account
+or environment), provide the required secrets with the first deployment instead:
+
+```sh
+pnpm --filter worker exec wrangler deploy --secrets-file <path>
+```
+
+The file uses JSON or `.env` format (`NAME=value` lines) and must never be
+committed; secrets it omits are preserved from the previous version. Use
+`secret put` for later updates.
+
 Start the Worker and frontend in separate terminals:
 
 ```sh
