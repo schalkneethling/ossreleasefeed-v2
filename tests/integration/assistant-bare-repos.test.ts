@@ -31,8 +31,6 @@ vi.mock("../../worker/src/assistant/interpreter/jev/client", async (importOrigin
 
 const TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone";
 const JEV_MODEL = "jev-1.13.0";
-const ADAPTIVE_FLAG = "adaptive-feed-builder";
-const JEV_FLAG = "assistant-interpreter-jev";
 const API_KEY = "test-typesafe-key";
 const experimentKey = "test-experiment-key-1234";
 
@@ -41,32 +39,21 @@ const executionContext = {
   waitUntil() {},
 } as ExecutionContext;
 
-type AiRun = (
-  model: string,
-  input: Record<string, unknown>,
-  options?: { signal?: AbortSignal },
-) => Promise<unknown>;
-
-const makeAssistantEnv = ({
-  jevFlag = true,
-  aiResponse = { intent: "create-or-update-feed", draftPatch: {} },
-}: { jevFlag?: boolean; aiResponse?: unknown } = {}) => {
+const makeAssistantEnv = () => {
   const getBooleanValue = vi.fn<
     (flag: string, defaultValue: boolean, context: Record<string, string>) => Promise<boolean>
-  >(async (flag) => flag === ADAPTIVE_FLAG || (flag === JEV_FLAG && jevFlag));
-  const run = vi.fn<AiRun>(async () => ({ response: aiResponse }));
+  >(async () => true);
   const limit = async () => ({ success: true });
   const bindings: WorkerBindings = {
     APP_NAME: "ossreleasefeed",
     GITHUB_PAT: "test-token",
     TYPESAFE_API_KEY: API_KEY,
     FLAGS: { getBooleanValue } as unknown as Flagship,
-    AI: { run },
     ASSISTANT_CLIENT_RATE_LIMITER: { limit },
     ASSISTANT_NETWORK_RATE_LIMITER: { limit },
   };
 
-  return { bindings, run };
+  return { bindings };
 };
 
 const starredDraft: FeedDraft = {
@@ -201,7 +188,7 @@ describe("POST /api/assistant/turn bare repository names", () => {
     useOctocatStars(["facebook/react", "vitejs/vite", "vercel/next.js"]);
     const message = "just react and vite";
     const requests = useTypeSafe(() => HttpResponse.json(jevBody(turnAnswers(message))));
-    const { bindings, run } = makeAssistantEnv();
+    const { bindings } = makeAssistantEnv();
     const response = await postAssistant(starredTurn(message), bindings);
 
     expect(response.status).toBe(200);
@@ -219,7 +206,6 @@ describe("POST /api/assistant/turn bare repository names", () => {
       feedUrl: null,
     });
     expect(requests).toHaveLength(1);
-    expect(run).not.toHaveBeenCalled();
   });
 
   it("asks Jev once, with one Noul per candidate, when a bare name fits several repositories", async () => {
@@ -417,28 +403,6 @@ describe("POST /api/assistant/turn bare repository names", () => {
       draft: starredDraft,
       issues: ["Choose no more than 25 repositories."],
     });
-  });
-
-  it("matches in code on the Llama path and never calls TypeSafe, asking when ambiguous", async () => {
-    useOctocatStars();
-    const requests = useTypeSafe(() => HttpResponse.json(jevBody({})));
-    const { bindings, run } = makeAssistantEnv({ jevFlag: false });
-    const settled = await postAssistant(starredTurn("just vitest and vite"), bindings);
-    const ambiguous = await postAssistant(starredTurn("react"), bindings);
-
-    expect(settled.status).toBe(200);
-    await expect(settled.json()).resolves.toMatchObject({
-      state: "edit-settings",
-      draft: { repoSelection: { kind: "subset", repos: ["vitest-dev/vitest", "vitejs/vite"] } },
-    });
-    expect(ambiguous.status).toBe(200);
-    await expect(ambiguous.json()).resolves.toMatchObject({
-      state: "choose-repos",
-      draft: starredDraft,
-      suggestions: ["Show me the repositories", "Include all of them", "Select the first 10"],
-    });
-    expect(requests).toHaveLength(0);
-    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("does not run bare matching for a suggested-reply turn or an all action", async () => {

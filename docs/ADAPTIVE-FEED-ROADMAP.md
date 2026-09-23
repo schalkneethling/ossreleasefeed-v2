@@ -14,12 +14,27 @@ the adaptive homepage and every assistant turn.
 
 ### Interpreter
 
-Turn interpretation sits behind one seam. Llama on Workers AI is the default.
-The `assistant-interpreter-jev` flag (default `false`) switches a turn to the
-Jev interpreter, which calls the TypeSafe API directly with the pinned model
-`jev-1.13.0`; it needs the `TYPESAFE_API_KEY` Worker secret and otherwise falls
-back to Llama. Both interpreters return the same decision contract, so the
-planner, validation, copy, and URL generation are unchanged.
+Turn interpretation sits behind one seam (`worker/src/assistant/interpreter/`).
+Jev is the interpreter: it calls the TypeSafe API directly with the pinned
+model `jev-1.13.0` and needs the `TYPESAFE_API_KEY` Worker secret; without the
+key an inference turn answers `503`. The interpreter returns the
+`ModelDecision` contract, and the planner, validation, copy, and URL generation
+read only that contract, so the seam is kept although one interpreter remains.
+
+The Jev migration ran in phases 0–4 (offline evaluation, direct client,
+composer, suggested replies and hints, bare repository names) with the Llama
+interpreter kept behind an `assistant-interpreter-jev` flag; phase 5 removed
+Llama, the flag, and the Workers AI binding. Record for phase 5:
+
+- Model version: `jev-1.13.0` (pinned; a different echoed version warns).
+- Static question-set hash (`staticQuestionSetHash()` in
+  `tests/eval/score.ts`): `f4f520ba2927`; `JEV_STATE_VERSION` 1.
+- Thresholds (`compose.ts`): stated 0.5, action 0.7, choice confidence 0.5,
+  injection 0.7, hint floors 0.3 / 0.4 (action), intent clarify 0.4; bare
+  repository inclusion 0.7 (`bare-repos.ts`).
+- Evaluation gates (`tests/eval/score.ts`): every `canonical` and `safety`
+  fixture passes; overall pass rate at least 0.9. No Llama baseline was
+  measured before the path was removed.
 
 #### Bare repository names
 
@@ -33,9 +48,9 @@ interpreter left the selection open (no explicit `owner/repo` subset, no
 all/first action). Exact one-to-one matches are selected without a model call
 on either interpreter. Ambiguous or inexact matches get one bounded second Jev
 request (message plus at most 40 candidates, one true/false question each,
-selected at 0.7) on the Jev path; on the Llama path, or when that request
-fails, the turn asks the person to choose and offers “Show me the
-repositories” first, logging stage `typesafe-repositories` without content.
+selected at 0.7); when that request fails, the turn asks the person to choose
+and offers “Show me the repositories” first, logging stage
+`typesafe-repositories` without content.
 A restriction replaces the existing subset; anything else adds to it, under
 the 25-repository cap.
 
@@ -46,8 +61,8 @@ Phase 3 is complete on `main`.
 The repository currently supports:
 
 - A runtime-flagged **Guide me / Ask for a feed** entry point.
-- Multi-turn typed topic-feed conversations backed by Workers AI, or by the
-  Jev interpreter when the `assistant-interpreter-jev` flag is on.
+- Multi-turn typed topic-feed conversations interpreted by Jev (TypeSafe
+  API, pinned `jev-1.13.0`); the Llama interpreter and its flag are removed.
 - Multi-turn typed starred-repository conversations: username interpretation
   and validation, all-star generation, subset validation against the user's
   fetched public starred repositories, and the existing repository picker for
@@ -84,9 +99,9 @@ state-machine behavior, trust boundaries, rate limits, and persistence rules.
   optional trusted-order repository action, and an unsupported-reason code.
   Application code derives state and UI, validates GitHub entities and product
   constraints, writes product copy, and creates the URL.
-- The interpreter choice is evaluated per turn and fails closed to Llama; the
-  `assistant-interpreter-jev` flag never bypasses the `adaptive-feed-builder`
-  kill switch, the rate limits, or application validation.
+- The interpreter never bypasses the `adaptive-feed-builder` kill switch, the
+  rate limits, or application validation; a missing TypeSafe key fails closed
+  with `503` after the rate limits.
 - An interpreter receives only the current message, the validated draft, its
   issues, and application-derived context—never the transcript. Jev selects
   among code-built candidates and cannot generate a value.
@@ -262,7 +277,7 @@ contents or conversation data.
 
 - Run complete CI and end-to-end tests. Run any remote model evaluation only
   after the maintainer explicitly approves its bounded request count and
-  possible Workers AI cost.
+  possible TypeSafe cost.
 - Complete accessibility, privacy, threat-model, cost, and responsive-design
   reviews.
 - Verify the production kill switch before percentage rollout.
@@ -287,9 +302,11 @@ to external state that cannot be committed:
   verify both environments, then revoke the previous token. Never commit,
   paste into documentation, print, log, or place the token in analytics or
   error metadata.
-- The Cloudflare account containing the Workers AI binding, Flagship app and
+- The Cloudflare account containing the Flagship app and
   `adaptive-feed-builder` flag, and rate-limit resources referenced by
   `worker/wrangler.toml`.
+- The TypeSafe API key (`TYPESAFE_API_KEY`), a Worker secret in production
+  and a 1Password item locally.
 - GitHub Actions secrets and Cloudflare Pages settings for deployment or
   preview end-to-end tests.
 

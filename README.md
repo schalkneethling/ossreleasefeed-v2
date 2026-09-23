@@ -67,8 +67,8 @@ The adaptive feed experiment's current status and remaining phased work are in
 - Node.js 22
 - Corepack with pnpm 11.9.0
 - The 1Password desktop app and CLI, with desktop-app integration enabled
-- Access to the project's Cloudflare account for remote Workers AI and
-  Flagship bindings
+- Access to the project's Cloudflare account for the remote Flagship binding
+- A TypeSafe API key for Ask mode (see `.env.schema`)
 
 Install the repository dependencies and Playwright's Chromium browser:
 
@@ -92,11 +92,13 @@ pnpm exec varlock load
 populates. They are never passed as command-line arguments (which any local
 process can read with `ps`) and never written to a `.dev.vars` file.
 
-`TYPESAFE_API_KEY` is optional locally: without it `wrangler dev` prints a
-missing-secret warning and the assistant keeps the Llama interpreter. With it,
-the Worker uses Jev only when the `assistant-interpreter-jev` flag evaluates to
-`true`. Production is stricter: `wrangler deploy` fails while a declared secret
-is missing on the deployed Worker, so create it first:
+`TYPESAFE_API_KEY` is required for Ask mode: the assistant interprets every
+typed turn with Jev through the TypeSafe API, and without the key an Ask turn
+answers `503 Assistant temporarily unavailable`. Locally the key may be left
+unset when Ask mode is not needed—`wrangler dev` prints a missing-secret
+warning and Guided mode keeps working. Production is stricter: `wrangler
+deploy` fails while a declared secret is missing on the deployed Worker, so
+create it first:
 
 ```sh
 pnpm --filter worker exec wrangler secret put TYPESAFE_API_KEY

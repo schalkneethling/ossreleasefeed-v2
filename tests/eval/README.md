@@ -76,7 +76,6 @@ composition or client error is a failed fixture, not a crashed run.
 
 The run fails unless both gates hold.
 
-## Llama baseline
+## Baseline
 
-Deferred. The current model's REST request shape has not been verified, so no
-baseline client exists yet; do not add one from memory.
+No baseline exists: the Llama interpreter was removed before one was measured.

@@ -62,7 +62,7 @@ const compareCaseInsensitive = (left: string, right: string): number => {
   return folded === 0 ? left.localeCompare(right) : folded;
 };
 
-// Mirrors `normalizeModelPatch` in worker/src/routes/assistant.ts: neutral
+// Mirrors the neutral-default stripping the Llama-era route applied (removed in Phase 5); kept so older fixtures score the same: neutral
 // defaults the application ignores never count as a difference.
 const normalizePatch = (patch: ModelDraftPatch): ModelDraftPatch => {
   const normalized: ModelDraftPatch = {};
