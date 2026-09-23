@@ -5,6 +5,7 @@ import {
   type FeedDraft,
   type FeedTtl,
 } from "../../../shared/adaptive-contracts";
+import { TOPIC_SLUG } from "./entities";
 
 export {
   ADAPTIVE_STATES,
@@ -14,6 +15,8 @@ export {
   type FeedDraft,
   type FeedTtl,
 } from "../../../shared/adaptive-contracts";
+
+export const MAX_EXPLICIT_REPOSITORIES = 25;
 
 export const ASSISTANT_INTENTS = [
   "create-or-update-feed",
@@ -45,7 +48,6 @@ const MODEL_DECISION_KEYS = [
   "repoSelectionAction",
   "unsupportedReason",
 ] as const;
-const TOPIC_SLUG = /^[a-z0-9][a-z0-9-]{0,34}$/u;
 
 export type AssistantIntent = (typeof ASSISTANT_INTENTS)[number];
 

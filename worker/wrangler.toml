@@ -7,6 +7,17 @@ workers_dev = true
 [vars]
 APP_NAME = "ossreleasefeed"
 
+# Secret values are never stored here. Declaring the names makes `wrangler dev`
+# read them from the process environment (varlock injects them from 1Password),
+# so they are not passed as command-line arguments, which any local process can
+# read, and are not written to a .dev.vars file. `wrangler deploy` fails when
+# one of these is missing on the deployed Worker. On an existing Worker, set it
+# first with `wrangler secret put <NAME>`; a brand-new Worker does not exist yet
+# for that command, so deploy it once with `wrangler deploy --secrets-file <path>`
+# (JSON or .env format, never committed) and use `secret put` from then on.
+[secrets]
+required = ["GITHUB_PAT", "TYPESAFE_API_KEY"]
+
 [ai]
 binding = "AI"
 remote = true

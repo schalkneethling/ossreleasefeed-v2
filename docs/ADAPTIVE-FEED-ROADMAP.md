@@ -12,6 +12,15 @@ Guided mode remains the production baseline throughout the experiment. The
 runtime Cloudflare Flagship flag `adaptive-feed-builder` is the kill switch for
 the adaptive homepage and every assistant turn.
 
+### Interpreter
+
+Turn interpretation sits behind one seam. Llama on Workers AI is the default.
+The `assistant-interpreter-jev` flag (default `false`) switches a turn to the
+Jev interpreter, which calls the TypeSafe API directly with the pinned model
+`jev-1.13.0`; it needs the `TYPESAFE_API_KEY` Worker secret and otherwise falls
+back to Llama. Both interpreters return the same decision contract, so the
+planner, validation, copy, and URL generation are unchanged.
+
 ## Current status
 
 Phase 3 is complete on `main`.
@@ -19,7 +28,8 @@ Phase 3 is complete on `main`.
 The repository currently supports:
 
 - A runtime-flagged **Guide me / Ask for a feed** entry point.
-- Multi-turn typed topic-feed conversations backed by Workers AI.
+- Multi-turn typed topic-feed conversations backed by Workers AI, or by the
+  Jev interpreter when the `assistant-interpreter-jev` flag is on.
 - Multi-turn typed starred-repository conversations: username interpretation
   and validation, all-star generation, subset validation against the user's
   fetched public starred repositories, and the existing repository picker for
@@ -49,6 +59,12 @@ state-machine behavior, trust boundaries, rate limits, and persistence rules.
   optional trusted-order repository action, and an unsupported-reason code.
   Application code derives state and UI, validates GitHub entities and product
   constraints, writes product copy, and creates the URL.
+- The interpreter choice is evaluated per turn and fails closed to Llama; the
+  `assistant-interpreter-jev` flag never bypasses the `adaptive-feed-builder`
+  kill switch, the rate limits, or application validation.
+- An interpreter receives only the current message, the validated draft, its
+  issues, and application-derived context—never the transcript. Jev selects
+  among code-built candidates and cannot generate a value.
 - Informational questions remain textual until controls are requested or a
   control is needed to resolve ambiguity.
 - “Show UI” composes only registered components and reflects the validated

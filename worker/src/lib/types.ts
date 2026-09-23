@@ -5,6 +5,8 @@ export type WorkerBindings = {
   APP_NAME: string;
   GITHUB_PAT: string;
   SENTRY_DSN?: string;
+  // Read only when the Jev interpreter flag is on; a Worker secret in production.
+  TYPESAFE_API_KEY?: string;
   AI?: {
     run(
       model: string,
@@ -19,6 +21,8 @@ export type WorkerBindings = {
 
 export type AppVariables = {
   githubLayer: Layer.Layer<GitHubClient>;
+  // Model id of the interpreter chosen for an assistant turn, for diagnostics.
+  assistantModel?: string;
 };
 
 export type AppEnv = {

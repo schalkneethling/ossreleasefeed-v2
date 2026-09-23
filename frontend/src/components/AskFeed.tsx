@@ -341,7 +341,8 @@ export function AskFeed({
           </output>
           <p className="ask-feed__rate-policy">
             Ask requests share a server-side network limit. If it is reached, we’ll tell you when to
-            try again.
+            try again. Messages typed here are processed by an AI service (Cloudflare Workers AI or
+            TypeSafe) to interpret your request; conversation history is not sent.
           </p>
           <div className="ask-feed__actions">
             <button
